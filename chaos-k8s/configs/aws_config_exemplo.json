@@ -1,0 +1,4 @@
+{
+  "ssh_key": "~/.ssh/vockey.pem",
+  "ssh_user": "ubuntu"
+}

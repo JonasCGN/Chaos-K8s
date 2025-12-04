@@ -1091,9 +1091,12 @@ class AvailabilitySimulator:
                 print(f"  ❌ Nenhum pod ativo encontrado para aplicação: {app_name}")
                 return False
             
-            # Usar o primeiro pod disponível
-            pod_name = pods[0]['name']
-            print(f"  🎯 Pod real atual: {pod_name} (app: {app_name})")
+            # Selecionar pod saudável (running + curl) ao invés do primeiro
+            pod_name = self._select_healthy_pod(pods, app_name)
+            if not pod_name:
+                print(f"  ❌ Nenhum pod saudável encontrado para aplicação: {app_name}")
+                return False
+            print(f"  🎯 Pod saudável selecionado: {pod_name} (app: {app_name})")
         else:
             # Nome direto do pod (compatibilidade)
             pod_name = component.name
@@ -1123,6 +1126,50 @@ class AvailabilitySimulator:
             print(f"  ✅ Pod {component.name} falhou com sucesso")
         
         return bool(success)  # Garantir que retorna bool
+    
+    def _select_healthy_pod(self, pods: list, app_name: str) -> str:
+        """
+        Seleciona um pod saudável (Running + respondendo a curl) da lista.
+        
+        Args:
+            pods: Lista de pods disponíveis
+            app_name: Nome da aplicação para verificação de saúde
+            
+        Returns:
+            Nome do pod saudável ou None se nenhum encontrado
+        """
+        print(f"  🔍 Verificando saúde de {len(pods)} pod(s) da aplicação {app_name}...")
+        
+        # Primeiro tentar verificação combinada silenciosa para ser mais rápido
+        try:
+            _, combined_details = self.health_checker.check_pods_combined(verbose=False)
+            
+            # Procurar por pods saudáveis na lista disponível
+            for pod in pods:
+                pod_name = pod['name']
+                
+                # Verificar se o pod está nos detalhes combinados e está saudável
+                if pod_name in combined_details and combined_details[pod_name].get('healthy', False):
+                    print(f"  ✅ Pod saudável encontrado: {pod_name}")
+                    return pod_name
+                elif pod_name in combined_details:
+                    pod_details = combined_details[pod_name]
+                    print(f"  ⚠️ Pod {pod_name} não está saudável:")
+                    if not pod_details['running_and_ready']:
+                        print(f"    - Status: {pod_details['status']}, Ready: {pod_details['ready']}")
+                    if not pod_details['responding_curl']:
+                        print(f"    - Curl falhou: {pod_details.get('curl_error', 'Não respondendo')}")
+            
+            # Se nenhum pod saudável foi encontrado, usar o primeiro da lista como fallback
+            if pods:
+                print(f"  ⚠️ Nenhum pod totalmente saudável encontrado, usando primeiro disponível: {pods[0]['name']}")
+                return pods[0]['name']
+                
+        except Exception as e:
+            print(f"  ⚠️ Erro na verificação de saúde, usando primeiro pod disponível: {e}")
+            return pods[0]['name'] if pods else None
+        
+        return None
     
     def _extract_app_name_from_pod_component(self, pod_full_name: str) -> str:
         """
@@ -1595,17 +1642,6 @@ class AvailabilitySimulator:
         
         print(f"✅ FASE 1 concluída em {criteria_recovery_time:.1f}s - critérios mínimos atendidos")
         
-        # FASE 2: Continuar aguardando até sistema estar COMPLETAMENTE estabilizado
-        print("🔄 FASE 2: Aguardando estabilização completa do sistema...")
-        system_stabilized, stabilization_time = self.health_checker.wait_for_pods_recovery_combined_silent(
-            enabled_apps=list(enabled_criteria.keys())
-        )
-        
-        if system_stabilized:
-            print(f"✅ FASE 2 concluída em {stabilization_time:.1f}s - sistema completamente estabilizado")
-        else:
-            print(f"⚠️ FASE 2 timeout - sistema pode não estar completamente estabilizado")
-        
         # IMPORTANTE: Retornar o tempo da FASE 1 (quando critérios foram atingidos)
         print(f"⏱️ TEMPO DE RECUPERAÇÃO FINAL: {criteria_recovery_time:.1f}s (FASE 1 - critérios)")
         return criteria_recovery_time
@@ -1658,38 +1694,38 @@ class AvailabilitySimulator:
     
     def _get_current_pod_for_deployment(self, deployment_name: str) -> Optional[str]:
         """
-        Obtém um pod atual em execução para um deployment específico.
+        Obtém um pod atual saudável (Running + respondendo curl) para um deployment específico.
         
         Args:
             deployment_name: Nome do deployment (ex: 'foo-app', 'bar-app')
             
         Returns:
-            Nome de um pod atual para esse deployment, ou None se não encontrado
+            Nome de um pod saudável para esse deployment, ou None se não encontrado
         """
         try:
-            # Tentar múltiplos padrões de label
-            label_patterns = [
-                f'app={deployment_name}',  # Padrão exato: app=foo-app
-                f'app={deployment_name.replace("-app", "")}',  # Sem sufixo: app=foo  
-                f'app.kubernetes.io/name={deployment_name}'
-            ]
+            # Usar o mesmo método que os outros para descobrir pods da aplicação
+            app_name = deployment_name.replace('-app', '') if '-app' in deployment_name else deployment_name
             
-            for label_pattern in label_patterns:
-                print(f"  🔍 Tentando label: {label_pattern}")
-                result = self.kubectl.execute_kubectl([
-                    'get', 'pods', 
-                    '-l', label_pattern,
-                    '--field-selector=status.phase=Running',
-                    '-o', 'jsonpath={.items[0].metadata.name}'
-                ])
-                
-                if result['success'] and result['output'].strip():
-                    pod_name = result['output'].strip()
-                    print(f"  🔍 Pod encontrado para {deployment_name}: {pod_name} (label: {label_pattern})")
-                    return pod_name
+            # Descobrir pods atuais dessa aplicação
+            pods = self.health_checker.get_pods_by_app_label(app_name)
             
-            print(f"  ⚠️ Nenhum pod Running encontrado para {deployment_name} com nenhum padrão de label")
-            return None
+            # Fallback: buscar por prefixo do nome se label não funcionar
+            if not pods:
+                print(f"  🔄 Tentando busca por prefixo para {deployment_name}...")
+                pods = self.health_checker.get_pods_by_name_prefix(app_name)
+            
+            if not pods:
+                print(f"  ❌ Nenhum pod encontrado para aplicação: {deployment_name}")
+                return None
+            
+            # Selecionar pod saudável (running + curl)
+            pod_name = self._select_healthy_pod(pods, app_name)
+            if pod_name:
+                print(f"  ✅ Pod saudável encontrado para {deployment_name}: {pod_name}")
+                return pod_name
+            else:
+                print(f"  ❌ Nenhum pod saudável encontrado para {deployment_name}")
+                return None
                 
         except Exception as e:
             print(f"  ❌ Erro ao buscar pod para {deployment_name}: {e}")

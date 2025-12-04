@@ -450,9 +450,9 @@ class ReliabilityTester:
         print(f"\n⏳ AGUARDANDO RECUPERAÇÃO...")
         recovery_start = time.time()
         
-        # Usar método combinado silencioso para verificação mais rápida
-        print(f"🔍 Verificando recuperação com método combinado (running + curl)...")
-        recovered, recovery_time = self.health_checker.wait_for_pods_recovery_combined_silent()
+        # Usar método simples e rápido para verificação de recuperação
+        print(f"🔍 Verificando recuperação dos pods...")
+        recovered, recovery_time = self.health_checker.wait_for_pods_recovery()
         
         # ========== RESULTADO ==========
         total_time = time.time() - iteration_start

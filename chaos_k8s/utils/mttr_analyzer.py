@@ -300,7 +300,7 @@ class MTTRAnalyzer:
             # Executar teste
             result = subprocess.run(
                 cmd,
-                cwd=os.getcwd()+"/kuber_bomber",
+                cwd=os.getcwd()+"/chaos_k8s",
                 capture_output=True,
                 text=True,
                 timeout=test_timeout,

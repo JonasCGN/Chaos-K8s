@@ -11,7 +11,7 @@ O **Kuber Bomber** é um framework para testes de confiabilidade em clusters Kub
 # 1. Configurar ambiente Python
 python3 -m venv ~/venv/py3env
 source ~/venv/py3env/bin/activate
-pip install -r kuber_bomber/requirements.txt
+pip install -r chaos_k8s/requirements.txt
 
 # 2. Verificar conectividade com cluster
 kubectl cluster-info
@@ -24,14 +24,14 @@ kubectl get pods --all-namespaces
 # 1. Configurar ambiente Python (mesmo processo)
 python3 -m venv ~/venv/py3env
 source ~/venv/py3env/bin/activate
-pip install -r kuber_bomber/requirements.txt
+pip install -r chaos_k8s/requirements.txt
 
 # 2. Configurar credenciais AWS
 aws configure
 # OU configurar via IAM Role se estiver em EC2
 
 # 3. Configurar arquivo AWS
-cp kuber_bomber/configs/aws_config_exemplo.json kuber_bomber/configs/aws_config.json
+cp chaos_k8s/configs/aws_config_exemplo.json chaos_k8s/configs/aws_config.json
 # Editar aws_config.json com sua chave SSH:
 {
   "ssh_key": "~/.ssh/sua-chave.pem",
@@ -47,9 +47,9 @@ aws ec2 describe-instances --output table
 
 #### Comando Principal (Interface Simplificada):
 ```bash
-cd /caminho/para/kuber_bomber
+cd /caminho/para/chaos_k8s
 source ~/venv/py3env/bin/activate
-python3 kuber_bomber/core/exemplo_uso.py
+python3 chaos_k8s/core/exemplo_uso.py
 ```
 
 #### O que acontece:
@@ -103,7 +103,7 @@ O **fluxo completo** automatiza todo o processo de teste:
 Após a execução, você terá:
 
 ```
-kuber_bomber/
+chaos_k8s/
 ├── 2025/11/24/component/           # Resultados dos testes por data
 │   ├── control_plane/
 │   │   └── shutdown_control_plane/
@@ -134,11 +134,11 @@ make generate_config_all_aws # AWS
 ### Testes Específicos:
 ```bash
 # Teste de worker node (AWS)
-cd kuber_bomber
+cd chaos_k8s
 python3 reliability_tester.py --component worker_node --failure-method shutdown_worker_node --target ip-10-0-0-10 --iterations 1 --aws
 
 # Teste de control plane (AWS)  
-cd kuber_bomber
+cd chaos_k8s
 python3 reliability_tester.py --component control_plane --failure-method shutdown_control_plane --target ip-10-0-0-219 --iterations 1 --aws
 ```
 
@@ -158,17 +158,17 @@ make run_simulation_aws # AWS
 
 ## 🛠️ Estrutura do Projeto
 
-- `kuber_bomber/core/exemplo_uso.py` - Interface principal simplificada
-- `kuber_bomber/core/reliability_tester.py` - Engine de testes
-- `kuber_bomber/configs/` - Configurações (geradas automaticamente)
+- `chaos_k8s/core/exemplo_uso.py` - Interface principal simplificada
+- `chaos_k8s/core/reliability_tester.py` - Engine de testes
+- `chaos_k8s/configs/` - Configurações (geradas automaticamente)
 - `makefile` - Comandos de automação
 - `2025/` - Resultados organizados por data
 
 ## ⚙️ Configurações Disponíveis
 
-O framework possui 4 arquivos de configuração na pasta `kuber_bomber/configs/`:
+O framework possui 4 arquivos de configuração na pasta `chaos_k8s/configs/`:
 
-### 📁 **kuber_bomber/configs/**
+### 📁 **chaos_k8s/configs/**
 
 #### **1. aws_config.json** (Para uso AWS)
 ```json
@@ -234,13 +234,13 @@ O framework possui 4 arquivos de configuração na pasta `kuber_bomber/configs/`
 #### **Para AWS:**
 ```bash
 # Editar credenciais SSH
-nano kuber_bomber/configs/aws_config.json
+nano chaos_k8s/configs/aws_config.json
 ```
 
 #### **Para Configuração Principal (após primeira execução):**
 ```bash
 # Editar configuração gerada automaticamente
-nano kuber_bomber/configs/config_simples_used.json
+nano chaos_k8s/configs/config_simples_used.json
 ```
 
 **🔧 Campos que você pode ajustar:**
@@ -293,5 +293,5 @@ make generate_config           # Local
 
 **🚀 Para começar rapidamente, execute apenas:**
 ```bash
-source ~/venv/py3env/bin/activate && python3 kuber_bomber/core/exemplo_uso.py
+source ~/venv/py3env/bin/activate && python3 chaos_k8s/core/exemplo_uso.py
 ```

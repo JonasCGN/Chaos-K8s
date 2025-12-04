@@ -97,7 +97,7 @@ class ConfigSimples:
             return cls()
     
     @classmethod
-    def load_aws_config(cls, aws_config_file: str = f"{os.getcwd}/kuber_bomber/configs/aws_config.json") -> Dict[str, Any]:
+    def load_aws_config(cls, aws_config_file: str = f"{os.getcwd}/chaos_k8s/configs/aws_config.json") -> Dict[str, Any]:
         """
         Carrega configuração AWS de arquivo separado com descoberta automática do control plane.
         
@@ -117,7 +117,7 @@ class ConfigSimples:
                     print("🔍 ssh_host não encontrado, descobrindo automaticamente...")
                     
                     # Importar discovery
-                    from kuber_bomber.utils.control_plane_discovery import ControlPlaneDiscovery
+                    from chaos_k8s.utils.control_plane_discovery import ControlPlaneDiscovery
                     
                     discovery = ControlPlaneDiscovery(config)
                     control_plane_ip = discovery.discover_control_plane_ip()
@@ -134,7 +134,7 @@ class ConfigSimples:
         
         return {}
     
-    def configure_aws(self, aws_config_file: str = f"{os.getcwd()}/kuber_bomber/configs/aws_config.json"):
+    def configure_aws(self, aws_config_file: str = f"{os.getcwd()}/chaos_k8s/configs/aws_config.json"):
         """
         Configura parâmetros AWS a partir de arquivo.
         
@@ -231,6 +231,16 @@ class ConfigSimples:
 
         # Caso aninhado - suportar tanto estrutura antiga quanto nova
         
+        # Deployments (nova estrutura baseada em deployments)
+        deploy_map = m.get('deployments')
+        if isinstance(deploy_map, dict):
+            for deploy_name, v in deploy_map.items():
+                # Se termina com '-container', trata como container
+                if deploy_name.endswith('-container'):
+                    flat[f"container-{deploy_name[:-10]}"] = v  # remove '-container' suffix
+                else:
+                    flat[f"pod-{deploy_name}"] = v
+
         # Pods (podem estar em 'pods' ou misturados com containers)
         pods_map = m.get('pods')
         if isinstance(pods_map, dict):
@@ -389,7 +399,7 @@ class ConfigSimples:
         Returns:
             List com componentes configurados baseados no JSON
         """
-        from kuber_bomber.simulation.availability_simulator import Component
+        from chaos_k8s.simulation.availability_simulator import Component
         
         components = []
         flat_mttf = self._flatten_mttf()
@@ -407,23 +417,17 @@ class ConfigSimples:
             # Filtrar por flags do experiment_config
             include = False
             if comp_type == 'pod':
-                # extrair nome do pod sem prefixo
-                pod_full = comp_name[len('pod-'):]
-                # Verificar se o pod pertence a alguma aplicação habilitada
-                for app_key, enabled in apps_enabled.items():
-                    if not enabled:
-                        continue
-                    if pod_full.startswith(app_key):
-                        include = True
-                        break
+                # extrair nome do deployment/aplicação sem prefixo
+                app_name = comp_name[len('pod-'):]
+                # Verificar se a aplicação está habilitada
+                if apps_enabled.get(app_name):
+                    include = True
             elif comp_type == 'container':
-                pod_full = comp_name[len('container-'):]
-                for app_key, enabled in apps_enabled.items():
-                    if not enabled:
-                        continue
-                    if pod_full.startswith(app_key):
-                        include = True
-                        break
+                # extrair nome do deployment/aplicação sem prefixo
+                app_name = comp_name[len('container-'):]
+                # Verificar se a aplicação está habilitada
+                if apps_enabled.get(app_name):
+                    include = True
             elif comp_type == 'worker_node':
                 node_name = comp_name[len('worker_node-'):]
                 if nodes_enabled.get(node_name):

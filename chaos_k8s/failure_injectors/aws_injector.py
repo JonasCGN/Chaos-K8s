@@ -163,7 +163,7 @@ class AWSFailureInjector:
             result = self.run_remote_command(cmd)
             
             if result.returncode == 0 or "Terminated" in result.stderr:
-                return True, "Container (all PIDs): kill -9 -1"
+                return True, f"sudo kubectl exec {pod_name} -c debug-tools -- sh -c 'kill -9 -1 2>/dev/null || true'"
             else:
                 return False, f"Erro: {result.stderr}"
                 
@@ -180,7 +180,7 @@ class AWSFailureInjector:
             result = self.run_remote_command(cmd)
             
             if result.returncode == 0 or "Terminated" in result.stderr:
-                return True, "Container (PID 1): kill -9 1"
+                return True, f"sudo kubectl exec {pod_name} -c debug-tools -- sh -c 'kill -9 1 2>/dev/null || true'"
             else:
                 return False, f"Erro: {result.stderr}"
                 

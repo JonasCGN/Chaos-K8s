@@ -10,7 +10,7 @@ Módulos simplificados para simulação de disponibilidade:
 - report_manager: Geração de relatórios
 
 Uso:
-    from kuber_bomber.simulation import CoreSimulator
+    from chaos_k8s.simulation import CoreSimulator
     
     simulator = CoreSimulator(aws_config=None)  # ou aws_config para modo AWS
     simulator.run_simulation(duration_hours=24, iterations=1)

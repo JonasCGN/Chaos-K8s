@@ -12,18 +12,18 @@ import os
 import json
 import time
 
-# Adicionar path do kuber_bomber
-sys.path.append('./kuber_bomber')
+# Adicionar path do chaos_k8s
+sys.path.append('./chaos_k8s')
 
-from kuber_bomber.simulation.availability_simulator import AvailabilitySimulator, Component
-from kuber_bomber.core.config_simples import ConfigSimples
+from chaos_k8s.simulation.availability_simulator import AvailabilitySimulator, Component
+from chaos_k8s.core.config_simples import ConfigSimples
 
 def load_real_components():
     """Carrega os componentes reais do arquivo de configuração."""
     try:
         # Tentar diferentes caminhos possíveis
         possible_paths = [
-            "./kuber_bomber/configs/config_simples_used.json",
+            "./chaos_k8s/configs/config_simples_used.json",
             "./configs/config_simples_used.json", 
         ]
         
@@ -180,8 +180,8 @@ def configure_aws_mode(simulator):
     
     try:
         # Importar e carregar configuração AWS
-        from kuber_bomber.utils.aws_config_loader import load_aws_config
-        from kuber_bomber.failure_injectors.aws_injector import AWSFailureInjector
+        from chaos_k8s.utils.aws_config_loader import load_aws_config
+        from chaos_k8s.failure_injectors.aws_injector import AWSFailureInjector
         
         aws_config = load_aws_config()
         if not aws_config:
@@ -233,7 +233,7 @@ def main():
             return
         
         # Carregar configuração AWS primeiro
-        from kuber_bomber.utils.aws_config_loader import load_aws_config
+        from chaos_k8s.utils.aws_config_loader import load_aws_config
         aws_config = load_aws_config()
         
         if not aws_config:

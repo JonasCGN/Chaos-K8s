@@ -7,7 +7,7 @@ Esta classe demonstra como usar os métodos principais do framework Kuber Bomber
 para testes de confiabilidade em Kubernetes.
 
 Exemplo básico:
-    from kuber_bomber.core.exemplo_uso import ExemploUso
+    from chaos_k8s.core.exemplo_uso import ExemploUso
     
     exemplo = ExemploUso()
     exemplo.executar_fluxo_completo()
@@ -20,15 +20,15 @@ from typing import Dict, List, Optional, Tuple
 
 # Adicionar path para imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
-kuber_bomber_dir = os.path.dirname(current_dir)
-project_dir = os.path.dirname(kuber_bomber_dir)
-sys.path.insert(0, kuber_bomber_dir)
+chaos_k8s_dir = os.path.dirname(current_dir)
+project_dir = os.path.dirname(chaos_k8s_dir)
+sys.path.insert(0, chaos_k8s_dir)
 sys.path.insert(0, project_dir)
 
-from kuber_bomber.core.reliability_tester import ReliabilityTester
-from kuber_bomber.core.config_simples import ConfigSimples, ConfigPresets
-from kuber_bomber.utils.infrastructure_discovery import InfrastructureDiscovery
-from kuber_bomber.utils.mttr_analyzer import MTTRAnalyzer
+from chaos_k8s.core.reliability_tester import ReliabilityTester
+from chaos_k8s.core.config_simples import ConfigSimples, ConfigPresets
+from chaos_k8s.utils.infrastructure_discovery import InfrastructureDiscovery
+from chaos_k8s.utils.mttr_analyzer import MTTRAnalyzer
 
 
 class ExemploUso:
@@ -125,7 +125,7 @@ class ExemploUso:
                 print("\n✅ Comando make executado com sucesso!")
                 
                 # Carregar configuração gerada
-                config_file = os.path.join(project_root, "kuber_bomber", "configs", "config_simples_used.json")
+                config_file = os.path.join(project_root, "chaos_k8s", "configs", "config_simples_used.json")
                 
                 if os.path.exists(config_file):
                     print(f"📂 Carregando configuração de: {config_file}")
@@ -134,7 +134,7 @@ class ExemploUso:
                         config_data = json.load(f)
                     
                     # Criar objeto ConfigSimples
-                    from kuber_bomber.core.config_simples import ConfigSimples
+                    from chaos_k8s.core.config_simples import ConfigSimples
                     config = ConfigSimples(config_data=config_data)
                     
                     # Configurar AWS se necessário
@@ -278,7 +278,7 @@ class ExemploUso:
         try:
             # Inicializar health_checker se necessário
             if not hasattr(self, 'health_checker') or not self.health_checker:
-                from kuber_bomber.monitoring.health_checker import HealthChecker
+                from chaos_k8s.monitoring.health_checker import HealthChecker
                 aws_config = None
                 if self.use_aws and self.config:
                     aws_config = self.config.get_aws_config()
@@ -363,7 +363,7 @@ class ExemploUso:
         try:
             # Inicializar health_checker se necessário
             if not hasattr(self, 'health_checker') or not self.health_checker:
-                from kuber_bomber.monitoring.health_checker import HealthChecker
+                from chaos_k8s.monitoring.health_checker import HealthChecker
                 aws_config = None
                 if self.use_aws and self.config:
                     aws_config = self.config.get_aws_config()
@@ -444,7 +444,7 @@ class ExemploUso:
             # Verificar se há configuração
             config_file = os.path.join(
                 os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-                "kuber_bomber", "configs", "config_simples_used.json"
+                "chaos_k8s", "configs", "config_simples_used.json"
             )
             
             if not os.path.exists(config_file):

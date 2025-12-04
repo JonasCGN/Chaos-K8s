@@ -13,12 +13,12 @@ import json
 import os
 from typing import List, Optional, Dict, Any
 
-# Adicionar path do kuber_bomber
+# Adicionar path do chaos_k8s
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from kuber_bomber.simulation.availability_simulator import AvailabilitySimulator
-from kuber_bomber.core.config_simples import ConfigSimples, ConfigPresets
-from kuber_bomber.utils.infrastructure_discovery import InfrastructureDiscovery
+from chaos_k8s.simulation.availability_simulator import AvailabilitySimulator
+from chaos_k8s.core.config_simples import ConfigSimples, ConfigPresets
+from chaos_k8s.utils.infrastructure_discovery import InfrastructureDiscovery
 
 
 def generate_config_with_discovery(use_aws: bool = False, 
@@ -80,7 +80,7 @@ def generate_config_with_discovery(use_aws: bool = False,
             print("🚀 Executando análise MTTR completa...")
             
             try:
-                from kuber_bomber.utils.mttr_analyzer import MTTRAnalyzer
+                from chaos_k8s.utils.mttr_analyzer import MTTRAnalyzer
                 
                 analyzer = MTTRAnalyzer(
                     use_aws=use_aws,
@@ -118,7 +118,7 @@ def load_or_generate_config(args) -> ConfigSimples:
     Returns:
         Configuração carregada
     """
-    config_file = os.getcwd() + "/kuber_bomber/configs/config_simples_used.json"
+    config_file = os.getcwd() + "/chaos_k8s/configs/config_simples_used.json"
     
     print(f"📁 Arquivo de configuração padrão: {config_file}")
     # Se forçar geração de nova configuração
@@ -171,22 +171,22 @@ def main():
 Exemplos de uso:
 
 # Gerar configuração descobrindo infraestrutura local
-python3 -m kuber_bomber.cli.availability_cli --get-config
+python3 -m chaos_k8s.cli.availability_cli --get-config
 
 # Gerar configuração completa com análise MTTR (local)
-python3 -m kuber_bomber.cli.availability_cli --get-config-all
+python3 -m chaos_k8s.cli.availability_cli --get-config-all
 
 # Gerar configuração para AWS
-python3 -m kuber_bomber.cli.availability_cli --get-config --force-aws
+python3 -m chaos_k8s.cli.availability_cli --get-config --force-aws
 
 # Executar simulação com configuração existente (local)
-python3 -m kuber_bomber.cli.availability_cli --use-config-simples
+python3 -m chaos_k8s.cli.availability_cli --use-config-simples
 
 # Executar simulação com configuração existente (AWS)
-python3 -m kuber_bomber.cli.availability_cli --use-config-simples --force-aws
+python3 -m chaos_k8s.cli.availability_cli --use-config-simples --force-aws
 
 # Executar simulação tradicional (compatibilidade)
-python3 -m kuber_bomber.cli.availability_cli --duration 1000 --iterations 5
+python3 -m chaos_k8s.cli.availability_cli --duration 1000 --iterations 5
 """
     )
     
@@ -274,9 +274,9 @@ python3 -m kuber_bomber.cli.availability_cli --duration 1000 --iterations 5
             print()
             print("Para executar a simulação, use:")
             if args.force_aws:
-                print("python3 -m kuber_bomber.cli.availability_cli --use-config-simples --force-aws")
+                print("python3 -m chaos_k8s.cli.availability_cli --use-config-simples --force-aws")
             else:
-                print("python3 -m kuber_bomber.cli.availability_cli --use-config-simples")
+                print("python3 -m chaos_k8s.cli.availability_cli --use-config-simples")
         else:
             print("❌ Falha ao gerar configuração")
             sys.exit(1)

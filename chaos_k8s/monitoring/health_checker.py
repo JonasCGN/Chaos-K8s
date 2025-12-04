@@ -1198,6 +1198,138 @@ class HealthChecker:
         
         return all_healthy, combined_details
     
+    def check_availability_criteria_met(self, availability_criteria: Dict[str, int], enabled_apps: Optional[List[str]] = None) -> Tuple[bool, Dict]:
+        """
+        Verifica se os critérios de disponibilidade estão sendo atendidos.
+        
+        Args:
+            availability_criteria: Dict com {app_name: min_required_pods}
+            enabled_apps: Lista de aplicações habilitadas para filtrar
+            
+        Returns:
+            Tuple com (criteria_met, details_per_app)
+        """
+        # Se não há critérios definidos, considerar como atendidos
+        if not availability_criteria:
+            return True, {}
+        
+        # Filtrar apenas aplicações habilitadas
+        if enabled_apps is not None:
+            # Criar critérios filtrados apenas para apps habilitados
+            filtered_criteria = {}
+            for app_name, min_required in availability_criteria.items():
+                if app_name in enabled_apps:
+                    filtered_criteria[app_name] = min_required
+            availability_criteria = filtered_criteria
+        
+        # Verificar status dos pods (silenciosamente)
+        all_running, running_details = self.check_pods_running_status(verbose=False)
+        all_responding, curl_details = self.check_pods_via_curl(verbose=False)
+        
+        # Se kubectl não está funcionando, critérios não são atendidos
+        if not running_details:
+            return False, {}
+        
+        criteria_met = True
+        app_details = {}
+        
+        for app_name, min_required in availability_criteria.items():
+            # Contar pods saudáveis para esta aplicação
+            healthy_pods = 0
+            total_pods = 0
+            
+            for pod_name in running_details.keys():
+                # Verificar se o pod pertence a esta aplicação
+                if pod_name.startswith(app_name + '-'):
+                    total_pods += 1
+                    running_info = running_details.get(pod_name, {})
+                    curl_info = curl_details.get(pod_name, {})
+                    
+                    # Pod é saudável se está Running/Ready E respondendo via curl
+                    if (running_info.get('running_and_ready', False) and 
+                        curl_info.get('responding', False)):
+                        healthy_pods += 1
+            
+            # Verificar se o critério foi atendido
+            app_available = healthy_pods >= min_required
+            app_details[app_name] = {
+                'healthy_pods': healthy_pods,
+                'total_pods': total_pods,
+                'required_pods': min_required,
+                'available': app_available
+            }
+            
+            if not app_available:
+                criteria_met = False
+        
+        return criteria_met, app_details
+    
+    def wait_for_availability_criteria(self, availability_criteria: Dict[str, int], enabled_apps: Optional[List[str]] = None, timeout: Optional[int] = None) -> Tuple[bool, float]:
+        """
+        Aguarda até que os critérios de disponibilidade sejam atendidos.
+        
+        Args:
+            availability_criteria: Dict com {app_name: min_required_pods}
+            enabled_apps: Lista de aplicações habilitadas para filtrar
+            timeout: Timeout em segundos (None = usar padrão)
+            
+        Returns:
+            Tuple com (criteria_met, recovery_time)
+        """
+        import time
+        
+        if timeout is None:
+            timeout = self.config.current_recovery_timeout
+        
+        print(f"⏳ Aguardando critérios de disponibilidade (timeout: {timeout}s)")
+        
+        start_time = time.time()
+        check_count = 0
+        kubectl_working = False
+        
+        while time.time() - start_time < timeout:
+            elapsed = time.time() - start_time
+            check_count += 1
+            
+            print(f"\\n🔍 Verificação #{check_count} ({elapsed:.1f}s/{timeout}s)")
+            
+            # Se kubectl não está funcionando, mostrar status especial
+            if not kubectl_working:
+                # Testar se kubectl está funcionando
+                result = self.kubectl.execute_kubectl(['get', 'pods', '-o', 'json'])
+                
+                if not result['success']:
+                    print(f"⚠️ Kubectl indisponível: {result.get('error', 'Connection refused')}")
+                    print("📊 Aguardando kubectl voltar a funcionar...")
+                    print(f"⏸️ Aguardando {self.config.health_check_interval}s...")
+                    time.sleep(self.config.health_check_interval)
+                    continue
+                else:
+                    kubectl_working = True
+                    print("✅ Kubectl voltou a funcionar!")
+            
+            # Verificar critérios de disponibilidade
+            criteria_met, app_details = self.check_availability_criteria_met(availability_criteria, enabled_apps)
+            
+            # Mostrar status detalhado
+            print("📊 Status dos critérios de disponibilidade:")
+            print("─" * 50)
+            for app_name, details in app_details.items():
+                status = "✅ OK" if details['available'] else "❌ INSUFICIENTE"
+                print(f"  • {app_name}: {details['healthy_pods']}/{details['required_pods']} pods {status}")
+            print("─" * 50)
+            
+            if criteria_met:
+                recovery_time = time.time() - start_time
+                print(f"\\n✅ Critérios de disponibilidade atendidos em {recovery_time:.2f}s")
+                return True, recovery_time
+            
+            print(f"⏸️ Aguardando {self.config.health_check_interval}s...")
+            time.sleep(self.config.health_check_interval)
+        
+        print(f"❌ Timeout: {timeout}s esgotado")
+        return False, timeout
+    
     def wait_for_pods_recovery_combined(self, timeout: Optional[int] = None) -> Tuple[bool, float]:
         """
         Aguarda recuperação dos pods usando verificação combinada (running + curl).
@@ -1250,12 +1382,54 @@ class HealthChecker:
         print(f"❌ Timeout: Pods não se recuperaram (running + curl) em {timeout}s")
         return False, timeout
     
-    def check_pods_combined_silent(self, timeout: int = 5) -> Tuple[bool, Dict]:
+    def _get_pods_for_deployments(self, deployments: List[str]) -> List[str]:
+        """
+        Obtém a lista de pods que pertencem aos deployments especificados.
+        
+        Args:
+            deployments: Lista de nomes de deployments
+            
+        Returns:
+            Lista de nomes de pods que pertencem aos deployments
+        """
+        matching_pods = []
+        
+        try:
+            result = self.kubectl.execute_kubectl(['get', 'pods', '-o', 'json'])
+            
+            if not result['success']:
+                return matching_pods
+            
+            pods_data = json.loads(result['output'])
+            
+            for pod in pods_data.get('items', []):
+                pod_name = pod['metadata']['name']
+                owner_refs = pod['metadata'].get('ownerReferences', [])
+                
+                # Verificar se o pod pertence a algum dos deployments especificados
+                for owner in owner_refs:
+                    if owner.get('kind') == 'ReplicaSet':
+                        rs_name = owner.get('name', '')
+                        # Extrair nome do deployment do ReplicaSet
+                        parts = rs_name.split('-')
+                        if len(parts) >= 2:
+                            deployment_name = '-'.join(parts[:-1])
+                            if deployment_name in deployments:
+                                matching_pods.append(pod_name)
+                                break
+                        
+        except Exception as e:
+            print(f"⚠️ Erro ao mapear deployments para pods: {e}")
+            
+        return matching_pods
+    
+    def check_pods_combined_silent(self, timeout: int = 5, enabled_apps: Optional[List[str]] = None) -> Tuple[bool, Dict]:
         """
         Versão silenciosa da verificação combinada - aguarda kubectl funcionar primeiro.
         
         Args:
             timeout: Timeout em segundos para a verificação
+            enabled_apps: Lista de aplicações habilitadas (deployments ou pods) para filtrar
             
         Returns:
             tuple: (bool sucesso, dict detalhes)
@@ -1271,11 +1445,39 @@ class HealthChecker:
         # Verificar curl (silenciosamente) 
         all_responding, curl_details = self.check_pods_via_curl(verbose=False)
         
+        # Se enabled_apps for fornecido, mapear deployments para pods
+        target_pods = None
+        if enabled_apps is not None:
+            # Tentar mapear deployments para pods
+            target_pods = self._get_pods_for_deployments(enabled_apps)
+            
+            # Fallback: se não conseguiu mapear, tratar como nomes de pods específicos
+            if not target_pods:
+                target_pods = enabled_apps
+        
         # Combinar resultados em formato de tabela
         all_pods = {}
         
-        # Processar pods com status Running
+        # Processar pods com status Running (aplicar filtro se fornecido)
         for pod_name in running_details.keys():
+            # Se target_pods foi definido, filtrar apenas esses pods
+            if target_pods is not None:
+                # Verificar se o pod está na lista de pods alvo (direto ou por deployment)
+                pod_match = False
+                
+                # Verificação direta por nome do pod
+                if pod_name in target_pods:
+                    pod_match = True
+                else:
+                    # Verificação por prefixo de deployment
+                    for app_name in target_pods:
+                        if pod_name.startswith(app_name + '-'):
+                            pod_match = True
+                            break
+                
+                if not pod_match:
+                    continue  # Pular este pod se não está na lista alvo
+            
             running_info = running_details[pod_name]
             all_pods[pod_name] = {
                 'name': pod_name,
@@ -1285,10 +1487,10 @@ class HealthChecker:
                 'curl_status': 'Pending'
             }
         
-        # Processar pods com curl
+        # Processar pods com curl (só os que passaram pelo filtro)
         for pod_name in curl_details.keys():
-            curl_info = curl_details[pod_name]
-            if pod_name in all_pods:
+            if pod_name in all_pods:  # Só processar se passou pelo filtro
+                curl_info = curl_details[pod_name]
                 all_pods[pod_name]['responding'] = curl_info['responding']
                 if curl_info['responding']:
                     all_pods[pod_name]['curl_status'] = 'OK'
@@ -1315,6 +1517,9 @@ class HealthChecker:
         print("─" * 70)
         print(f"📊 Resumo: {healthy_count}/{total_count} pods saudáveis")
         
+        # Verificar se todos os pods estão saudáveis
+        all_healthy = (healthy_count == total_count and total_count > 0)
+        
         # Preparar detalhes de retorno
         combined_details = {}
         for pod_name, pod_info in all_pods.items():
@@ -1334,13 +1539,14 @@ class HealthChecker:
         
         return healthy_count == total_count, combined_details
 
-    def wait_for_pods_recovery_combined_silent(self, timeout: Optional[int] = None) -> Tuple[bool, float]:
+    def wait_for_pods_recovery_combined_silent(self, timeout: Optional[int] = None, enabled_apps: Optional[List[str]] = None) -> Tuple[bool, float]:
         """
         Versão silenciosa da espera por recuperação combinada.
         Aguarda o kubectl voltar a funcionar primeiro, depois verifica pods.
         
         Args:
             timeout: Timeout específico em segundos. Se None, usa o timeout global.
+            enabled_apps: Lista de aplicações habilitadas para filtrar
             
         Returns:
             Tuple com (recuperou_com_sucesso, tempo_de_recuperacao)
@@ -1378,7 +1584,7 @@ class HealthChecker:
                     print("✅ Kubectl voltou a funcionar!")
             
             # Verificar pods de forma combinada e silenciosa
-            all_healthy, pod_details = self.check_pods_combined_silent()
+            all_healthy, pod_details = self.check_pods_combined_silent(enabled_apps=enabled_apps)
             
             if all_healthy and pod_details:  # Garantir que há pods para verificar
                 recovery_time = time.time() - start_time

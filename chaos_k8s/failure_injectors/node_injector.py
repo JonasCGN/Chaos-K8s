@@ -63,7 +63,7 @@ class NodeFailureInjector:
             Tuple com (sucesso, comando_executado)
         """
         if target is None:
-            from kuber_bomber.monitoring.system_monitor import SystemMonitor
+            from chaos_k8s.monitoring.system_monitor import SystemMonitor
             monitor = SystemMonitor()
             target = monitor.get_control_plane_node()
             if not target:
@@ -280,7 +280,7 @@ class NodeFailureInjector:
             Tuple com (sucesso, comando_executado)
         """
         if target is None:
-            from kuber_bomber.monitoring.system_monitor import SystemMonitor
+            from chaos_k8s.monitoring.system_monitor import SystemMonitor
             monitor = SystemMonitor()
             target = monitor.get_control_plane_node()
             if not target:
@@ -314,7 +314,7 @@ class NodeFailureInjector:
             Tuple com (sucesso, comando_executado)
         """
         if target is None:
-            from kuber_bomber.monitoring.system_monitor import SystemMonitor
+            from chaos_k8s.monitoring.system_monitor import SystemMonitor
             monitor = SystemMonitor()
             target = monitor.get_control_plane_node()
             if not target:

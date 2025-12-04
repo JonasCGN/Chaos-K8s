@@ -67,64 +67,64 @@ clear_maven:
 run_all_failures_aws:
 	@echo ""
 	@echo "📦 ===== TESTES DE PODS AWS ====="
-# 	cd kuber_bomber && python3 reliability_tester.py --component pod --failure-method kill_processes --target bar-app-df9db64d6-bh55z --iterations 1 --interval 5 --aws
+# 	cd chaos_k8s && python3 reliability_tester.py --component pod --failure-method kill_processes --target bar-app-df9db64d6-bh55z --iterations 1 --interval 5 --aws
 # 	@echo ""
-# 	cd kuber_bomber && python3 reliability_tester.py --component pod --failure-method kill_init --target foo-app-86d576dd47-5w6s2 --iterations 1 --interval 5 --aws
+# 	cd chaos_k8s && python3 reliability_tester.py --component pod --failure-method kill_init --target foo-app-86d576dd47-5w6s2 --iterations 1 --interval 5 --aws
 # 	@echo ""
 # 	@echo "🖥️  ===== TESTES DE WORKER NODES AWS ====="
-# 	cd kuber_bomber && python3 reliability_tester.py --component worker_node --failure-method shutdown_worker_node --target ip-10-0-0-10 --iterations 1 --interval 10 --aws
+# 	cd chaos_k8s && python3 reliability_tester.py --component worker_node --failure-method shutdown_worker_node --target ip-10-0-0-10 --iterations 1 --interval 10 --aws
 # 	@echo ""
-# 	cd kuber_bomber && python3 reliability_tester.py --component worker_node --failure-method kill_kubelet --target ip-10-0-0-10 --iterations 1 --interval 1 --aws
+# 	cd chaos_k8s && python3 reliability_tester.py --component worker_node --failure-method kill_kubelet --target ip-10-0-0-10 --iterations 1 --interval 1 --aws
 # 	@echo ""
-# 	cd kuber_bomber && python3 reliability_tester.py --component worker_node --failure-method delete_kube_proxy --target ip-10-0-0-10 --iterations 1 --interval 10 --aws
+# 	cd chaos_k8s && python3 reliability_tester.py --component worker_node --failure-method delete_kube_proxy --target ip-10-0-0-10 --iterations 1 --interval 10 --aws
 # 	@echo ""
-# 	cd kuber_bomber && python3 reliability_tester.py --component worker_node --failure-method restart_containerd --target ip-10-0-0-10  --iterations 1 --interval 10 --aws
+# 	cd chaos_k8s && python3 reliability_tester.py --component worker_node --failure-method restart_containerd --target ip-10-0-0-10  --iterations 1 --interval 10 --aws
 # 	@echo ""
 # 	@echo "🎛️  ===== TESTES DE CONTROL PLANE AWS ====="
-# 	cd kuber_bomber && python3 reliability_tester.py --component control_plane --failure-method kill_control_plane_processes --target ip-10-0-0-219 --iterations 10 --interval 5 --aws
+# 	cd chaos_k8s && python3 reliability_tester.py --component control_plane --failure-method kill_control_plane_processes --target ip-10-0-0-219 --iterations 10 --interval 5 --aws
 # 	@echo ""
-	cd kuber_bomber && python3 reliability_tester.py --component control_plane --failure-method shutdown_control_plane --target ip-10-0-0-219 --iterations 1 --interval 5 --aws
+	cd chaos_k8s && python3 reliability_tester.py --component control_plane --failure-method shutdown_control_plane --target ip-10-0-0-219 --iterations 1 --interval 5 --aws
 	@echo ""
-# 	cd kuber_bomber && python3 reliability_tester.py --component control_plane --failure-method kill_kube_apiserver --target ip-10-0-0-219 --iterations 1 --interval 5 --aws
+# 	cd chaos_k8s && python3 reliability_tester.py --component control_plane --failure-method kill_kube_apiserver --target ip-10-0-0-219 --iterations 1 --interval 5 --aws
 # 	@echo ""
-# 	cd kuber_bomber && python3 reliability_tester.py --component control_plane --failure-method kill_kube_controller_manager --target ip-10-0-0-219 --iterations 1 --interval 5 --aws
+# 	cd chaos_k8s && python3 reliability_tester.py --component control_plane --failure-method kill_kube_controller_manager --target ip-10-0-0-219 --iterations 1 --interval 5 --aws
 # 	@echo ""
-# 	cd kuber_bomber && python3 reliability_tester.py --component control_plane --failure-method kill_kube_scheduler --target ip-10-0-0-219 --iterations 1 --interval 1 --aws
+# 	cd chaos_k8s && python3 reliability_tester.py --component control_plane --failure-method kill_kube_scheduler --target ip-10-0-0-219 --iterations 1 --interval 1 --aws
 # 	@echo ""
-# 	cd kuber_bomber && python3 reliability_tester.py --component control_plane --failure-method kill_etcd --target ip-10-0-0-219 --iterations 1 --interval 5 --aws --timeout extended
+# 	cd chaos_k8s && python3 reliability_tester.py --component control_plane --failure-method kill_etcd --target ip-10-0-0-219 --iterations 1 --interval 5 --aws --timeout extended
 # 	@echo ""
 # 	@echo "✅ Suite completa de testes AWS finalizada!"
 # 	@echo "📁 Resultados salvos em: testes/2025/11/04/component/"
 
 install_requirements:
-	cd kuber_bomber && pip install -r requirements.txt
+	cd chaos_k8s && pip install -r requirements.txt
 
 run_graficos:
 	cd show_graficos && python3 graficos.py
 
 run_simulation:
 # 	source ~/venvs/py3env/bin/activate && 
-	cd ./ && python3 -m kuber_bomber.cli.availability_cli --use-config-simples
+	cd ./ && python3 -m chaos_k8s.cli.availability_cli --use-config-simples
 
 run_simulation_aws:
 # 	source ~/venvs/py3env/bin/activate && 
-	cd ./ && python3 -m kuber_bomber.cli.availability_cli --use-config-simples --force-aws
+	cd ./ && python3 -m chaos_k8s.cli.availability_cli --use-config-simples --force-aws
 
 generate_config:
 # 	source ~/venvs/py3env/bin/activate && 
-	cd ./ && python3 -m kuber_bomber.cli.availability_cli --get-config
+	cd ./ && python3 -m chaos_k8s.cli.availability_cli --get-config
 
 generate_config_aws:
 # 	source ~/venvs/py3env/bin/activate && 
-	cd ./ && python3 -m kuber_bomber.cli.availability_cli --get-config --force-aws
+	cd ./ && python3 -m chaos_k8s.cli.availability_cli --get-config --force-aws
 
 generate_config_all:
 # 	source ~/venvs/py3env/bin/activate && 
-	cd ./ && python3 -m kuber_bomber.cli.availability_cli --get-config-all
+	cd ./ && python3 -m chaos_k8s.cli.availability_cli --get-config-all
 
 generate_config_all_aws:
 # 	source ~/venvs/py3env/bin/activate && 
-	cd ./ && python3 -m kuber_bomber.cli.availability_cli --get-config-all --force-aws
+	cd ./ && python3 -m chaos_k8s.cli.availability_cli --get-config-all --force-aws
 
 ssh_cli_cp:
 	@$(MAKE) get_control_plane_ip
@@ -164,8 +164,8 @@ setup_aws_pods_complete:
 	@echo "🚀 Iniciando setup completo dos pods AWS..."
 	@echo "1️⃣ Instalando ferramentas..."
 	make install_debug_tools
-	@echo "2️⃣ Verificando instalação..."
-	make check_aws_pods_tools
+# 	@echo "2️⃣ Verificando instalação..."
+# 	make check_aws_pods_tools
 	@echo "3️⃣ Testando comando kill..."
 	ssh -i ~/.ssh/vockey.pem ubuntu@$(CONTROL_PLANE_IP) 'sudo kubectl exec $$(sudo kubectl get pods -o name | grep bar-app | cut -d/ -f2 | head -1) -- ps aux | head -2'
 	@echo "✅ Setup AWS completo finalizado! Pods prontos para Kuber Bomber."

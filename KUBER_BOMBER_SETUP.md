@@ -74,7 +74,7 @@ Agora você pode executar qualquer comando do Kuber Bomber:
 
 ### Teste de Pods
 ```bash
-cd kuber_bomber && python3 reliability_tester.py \
+cd chaos_k8s && python3 reliability_tester.py \
   --component pod \
   --failure-method kill_processes \
   --target bar-app-69bc4fffc-b82p9 \

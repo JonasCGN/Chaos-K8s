@@ -52,7 +52,7 @@ class Component:
                 ]
             elif self.mttf_key == "container":
                 self.available_failure_methods = [
-                    "kill_all_processes",
+                    "kill_init_process",
                 ]
             elif self.mttf_key == "worker_node" or (self.component_type == "node" and not self.mttf_key):
                 self.available_failure_methods = [
@@ -1152,29 +1152,41 @@ class AvailabilitySimulator:
         """Injeta falha específica em container."""
         print(f"  🐳 Executando falha de CONTAINER: {failure_method}")
         
-        # Container é parte do pod pai
-        pod_name = component.parent_component
-        if not pod_name:
-            print(f"  ❌ Container {component.name} não tem pod pai")
+        # Container é parte do pod pai - descobrir pod real atual
+        app_name = component.parent_component
+        if not app_name:
+            print(f"  ❌ Container {component.name} não tem aplicação pai")
             return False
         
-        # Para containers, usar métodos específicos ou simular
-        if failure_method == "kill_container_process":
-            # Simular falha específica do container
-            print(f"  🎯 Matando processo do container em {pod_name}")
+        # Descobrir pod real atual para essa aplicação
+        actual_pod_name = self._get_current_pod_for_deployment(app_name)
+        if not actual_pod_name:
+            print(f"  ❌ Nenhum pod encontrado para aplicação {app_name}")
+            return False
+        
+        print(f"  🎯 Pod real atual: {actual_pod_name} (app: {app_name})")
+        
+        # Para containers, usar métodos específicos conforme configurado
+        if failure_method in ["kill_init_processes", "kill_init_process"]:
+            print(f"  🔄 Matando processo init do container em {actual_pod_name}")
             if self.is_aws_mode and self.aws_injector:
-                success, _ = self.aws_injector.kill_all_processes(pod_name)
+                success, cmd_executed = self.aws_injector.kill_init_process(actual_pod_name)
+                print(f"  💻 Comando executado: {cmd_executed}")
             else:
-                success = self.pod_injector.kill_all_processes(pod_name)
-        elif failure_method == "restart_container":
-            print(f"  🔄 Reiniciando container em {pod_name}")
+                success = self.pod_injector.kill_init_process(actual_pod_name)
+                print(f"  💻 Comando executado via kubectl local")
+        elif failure_method in ["kill_container_process", "kill_all_processes"]:
+            # Fallback para outros métodos
+            print(f"  🎯 Matando todos processos do container em {actual_pod_name}")
             if self.is_aws_mode and self.aws_injector:
-                success, _ = self.aws_injector.kill_init_process(pod_name)
+                success, cmd_executed = self.aws_injector.kill_all_processes(actual_pod_name)
+                print(f"  💻 Comando executado: {cmd_executed}")
             else:
-                success = self.pod_injector.kill_init_process(pod_name)
+                success = self.pod_injector.kill_all_processes(actual_pod_name)
+                print(f"  💻 Comando executado via kubectl local")
         else:
-            # Fallback
-            print(f"  � Simulando falha de container: {failure_method}")
+            # Fallback para métodos não mapeados
+            print(f"  ⚠️ Simulando falha de container: {failure_method} (método não implementado)")
             success = True
         
         if success:
@@ -1491,6 +1503,7 @@ class AvailabilitySimulator:
     def is_system_available(self) -> Tuple[bool, Dict]:
         """
         Verifica se o sistema está disponível baseado nos critérios configurados.
+        Considera apenas aplicações habilitadas (enabled=True) no experiment_config.
         
         Returns:
             Tuple com (sistema_disponível, detalhes_por_app)
@@ -1498,8 +1511,15 @@ class AvailabilitySimulator:
         availability_details = {}
         system_available = True
         
-        # Verificar cada aplicação
-        for app_name, min_required in self.availability_criteria.items():
+        # Filtrar apenas aplicações habilitadas
+        enabled_criteria = self._get_enabled_availability_criteria()
+        
+        if not enabled_criteria:
+            print("⚠️ Nenhuma aplicação habilitada para verificação de disponibilidade")
+            return True, {}
+        
+        # Verificar cada aplicação habilitada
+        for app_name, min_required in enabled_criteria.items():
             try:
                 # Extrair o nome base da aplicação do nome completo do pod
                 # bar-app-775c8885f5-6wdlt -> bar
@@ -1519,7 +1539,8 @@ class AvailabilitySimulator:
                 availability_details[app_name] = {
                     'ready_pods': ready_pods,
                     'required_pods': min_required,
-                    'available': app_available
+                    'available': app_available,
+                    'enabled': True
                 }
                 
                 if not app_available:
@@ -1530,11 +1551,279 @@ class AvailabilitySimulator:
                 availability_details[app_name] = {
                     'ready_pods': 0,
                     'required_pods': min_required,
-                    'available': False
+                    'available': False,
+                    'enabled': True
                 }
                 system_available = False
         
+        # Adicionar aplicações desabilitadas aos detalhes (para relatório)
+        disabled_criteria = self._get_disabled_availability_criteria()
+        for app_name, min_required in disabled_criteria.items():
+            availability_details[app_name] = {
+                'ready_pods': 0,
+                'required_pods': min_required,
+                'available': True,  # Sempre disponível pois está desabilitada
+                'enabled': False
+            }
+        
         return system_available, availability_details
+
+    def wait_for_recovery_with_two_phase_measurement(self) -> float:
+        """
+        Aguarda recuperação com medição em duas fases:
+        1. Mede tempo quando critérios mínimos são atendidos
+        2. Continua aguardando até sistema estar completamente estabilizado
+        
+        Returns:
+            Tempo de recuperação em segundos (medido na fase 1)
+        """
+        import time
+        
+        enabled_criteria = self._get_enabled_availability_criteria()
+        print(f"🔍 Aguardando recuperação em duas fases para: {enabled_criteria}")
+        
+        # FASE 1: Aguardar critérios mínimos serem atendidos e MEDIR o tempo
+        print("📊 FASE 1: Aguardando critérios mínimos...")
+        criteria_met, criteria_recovery_time = self.health_checker.wait_for_availability_criteria(
+            availability_criteria=enabled_criteria,
+            enabled_apps=list(enabled_criteria.keys())
+        )
+        
+        if not criteria_met:
+            print("❌ FASE 1 falhou - critérios não foram atendidos")
+            return criteria_recovery_time
+        
+        print(f"✅ FASE 1 concluída em {criteria_recovery_time:.1f}s - critérios mínimos atendidos")
+        
+        # FASE 2: Continuar aguardando até sistema estar COMPLETAMENTE estabilizado
+        print("🔄 FASE 2: Aguardando estabilização completa do sistema...")
+        system_stabilized, stabilization_time = self.health_checker.wait_for_pods_recovery_combined_silent(
+            enabled_apps=list(enabled_criteria.keys())
+        )
+        
+        if system_stabilized:
+            print(f"✅ FASE 2 concluída em {stabilization_time:.1f}s - sistema completamente estabilizado")
+        else:
+            print(f"⚠️ FASE 2 timeout - sistema pode não estar completamente estabilizado")
+        
+        # IMPORTANTE: Retornar o tempo da FASE 1 (quando critérios foram atingidos)
+        print(f"⏱️ TEMPO DE RECUPERAÇÃO FINAL: {criteria_recovery_time:.1f}s (FASE 1 - critérios)")
+        return criteria_recovery_time
+    
+    def _get_pod_to_deployment_mapping(self) -> Dict[str, str]:
+        """
+        Mapeia nomes de pods para seus respectivos deployments.
+        
+        Returns:
+            Dict com {pod_name: deployment_name}
+        """
+        pod_to_deployment = {}
+        
+        try:
+            # Obter todos os pods com informações de metadata
+            result = self.kubectl.execute_kubectl(['get', 'pods', '-o', 'json'])
+            
+            if not result['success']:
+                print(f"❌ Erro ao obter pods para mapeamento: {result['error']}")
+                return pod_to_deployment
+            
+            pods_data = json.loads(result['output'])
+            
+            for pod in pods_data.get('items', []):
+                pod_name = pod['metadata']['name']
+                owner_refs = pod['metadata'].get('ownerReferences', [])
+                
+                # Procurar pelo ReplicaSet owner, e depois pelo Deployment
+                for owner in owner_refs:
+                    if owner.get('kind') == 'ReplicaSet':
+                        rs_name = owner.get('name', '')
+                        # Deployment name é o ReplicaSet name sem o hash final
+                        # Ex: bar-app-69bc4fffc -> bar-app
+                        parts = rs_name.split('-')
+                        if len(parts) >= 2:
+                            deployment_name = '-'.join(parts[:-1])  # Remove hash do ReplicaSet
+                            pod_to_deployment[pod_name] = deployment_name
+                            break
+                        else:
+                            # Fallback: usar label app se disponível
+                            labels = pod['metadata'].get('labels', {})
+                            app_label = labels.get('app', labels.get('app.kubernetes.io/name', ''))
+                            if app_label:
+                                pod_to_deployment[pod_name] = app_label
+                        
+        except Exception as e:
+            print(f"⚠️ Erro ao mapear pods para deployments: {e}")
+            
+        return pod_to_deployment
+    
+    def _get_current_pod_for_deployment(self, deployment_name: str) -> Optional[str]:
+        """
+        Obtém um pod atual em execução para um deployment específico.
+        
+        Args:
+            deployment_name: Nome do deployment (ex: 'foo-app', 'bar-app')
+            
+        Returns:
+            Nome de um pod atual para esse deployment, ou None se não encontrado
+        """
+        try:
+            # Tentar múltiplos padrões de label
+            label_patterns = [
+                f'app={deployment_name}',  # Padrão exato: app=foo-app
+                f'app={deployment_name.replace("-app", "")}',  # Sem sufixo: app=foo  
+                f'app.kubernetes.io/name={deployment_name}'
+            ]
+            
+            for label_pattern in label_patterns:
+                print(f"  🔍 Tentando label: {label_pattern}")
+                result = self.kubectl.execute_kubectl([
+                    'get', 'pods', 
+                    '-l', label_pattern,
+                    '--field-selector=status.phase=Running',
+                    '-o', 'jsonpath={.items[0].metadata.name}'
+                ])
+                
+                if result['success'] and result['output'].strip():
+                    pod_name = result['output'].strip()
+                    print(f"  🔍 Pod encontrado para {deployment_name}: {pod_name} (label: {label_pattern})")
+                    return pod_name
+            
+            print(f"  ⚠️ Nenhum pod Running encontrado para {deployment_name} com nenhum padrão de label")
+            return None
+                
+        except Exception as e:
+            print(f"  ❌ Erro ao buscar pod para {deployment_name}: {e}")
+            return None
+        
+    def _is_deployment_based_config(self) -> bool:
+        """
+        Verifica se a configuração usa deployments (nova estrutura) ou pods (antiga).
+        
+        Returns:
+            True se usar deployments, False se usar pods específicos
+        """
+        if not hasattr(self, '_config') or not self._config:
+            return False
+            
+        mttf_config = self._config.get('mttf_config', {})
+        return 'deployments' in mttf_config
+        
+    def _extract_deployment_from_pod_name(self, pod_name: str) -> Optional[str]:
+        """
+        Extrai o nome do deployment a partir do nome do pod.
+        
+        Args:
+            pod_name: Nome do pod (ex: bar-app-69bc4fffc-n6w2k)
+            
+        Returns:
+            Nome do deployment (ex: bar-app) ou None
+        """
+        if not pod_name:
+            return None
+            
+        parts = pod_name.split('-')
+        if len(parts) >= 3:
+            # Assumir formato: app-hash-podid
+            # Remover os últimos 2 segmentos (hash + pod id)
+            return '-'.join(parts[:-2])
+        elif len(parts) == 2:
+            # Formato: app-podid
+            return parts[0]
+            
+        return pod_name
+        
+    def _pod_belongs_to_deployment(self, pod_name: str, deployment_name: str) -> bool:
+        """
+        Verifica se um pod pertence a um deployment específico.
+        
+        Args:
+            pod_name: Nome do pod
+            deployment_name: Nome do deployment
+            
+        Returns:
+            True se o pod pertence ao deployment
+        """
+        extracted_deployment = self._extract_deployment_from_pod_name(pod_name)
+        return extracted_deployment == deployment_name
+        
+    def _map_criteria_to_deployments(self, criteria: Dict[str, int], filter_applications: Optional[Dict[str, bool]] = None) -> Dict[str, int]:
+        """
+        Mapeia critérios baseados em pods para critérios baseados em deployments.
+        
+        Args:
+            criteria: Critérios originais {pod_name: min_required}
+            filter_applications: Filtro opcional de aplicações habilitadas
+            
+        Returns:
+            Dict com {deployment_name: min_required_pods}
+        """
+        pod_to_deployment = self._get_pod_to_deployment_mapping()
+        deployment_criteria = {}
+        
+        for pod_name, min_required in criteria.items():
+            # Verificar filtro se fornecido
+            if filter_applications is not None:
+                if not filter_applications.get(pod_name, True):
+                    continue
+                    
+            deployment_name = pod_to_deployment.get(pod_name)
+            if deployment_name:
+                # Para cada deployment, usar o valor máximo se houver múltiplos pods
+                if deployment_name in deployment_criteria:
+                    deployment_criteria[deployment_name] = max(deployment_criteria[deployment_name], min_required)
+                else:
+                    deployment_criteria[deployment_name] = min_required
+            else:
+                # Fallback: tentar extrair deployment do nome do pod
+                deployment_name = self._extract_deployment_from_pod_name(pod_name)
+                if deployment_name and (filter_applications is None or filter_applications.get(pod_name, True)):
+                    deployment_criteria[deployment_name] = min_required
+                    
+        return deployment_criteria
+
+    def _get_enabled_availability_criteria(self) -> Dict[str, int]:
+        """
+        Retorna apenas os critérios de disponibilidade para aplicações habilitadas.
+        
+        Returns:
+            Dict com {app_name: min_required_pods} apenas para apps habilitados
+        """
+        if not hasattr(self, '_config') or not self._config:
+            # Se não temos config carregada, usar todas as aplicações (compatibilidade)
+            return self.availability_criteria
+        
+        experiment_config = self._config.get('experiment_config', {})
+        applications = experiment_config.get('applications', {})
+        
+        enabled_criteria = {}
+        for app_name, min_required in self.availability_criteria.items():
+            # Verificar se a aplicação está habilitada no experiment_config
+            if applications.get(app_name, True):  # Default True para compatibilidade
+                enabled_criteria[app_name] = min_required
+        
+        return enabled_criteria
+    
+    def _get_disabled_availability_criteria(self) -> Dict[str, int]:
+        """
+        Retorna apenas os critérios de disponibilidade para aplicações desabilitadas.
+        
+        Returns:
+            Dict com {app_name: min_required_pods} apenas para apps desabilitados
+        """
+        if not hasattr(self, '_config') or not self._config:
+            # Se não temos config carregada, nenhuma app está desabilitada
+            return {}
+        
+        experiment_config = self._config.get('experiment_config', {})
+        applications = experiment_config.get('applications', {})
+        
+        disabled_criteria = {}
+        for app_name, min_required in self.availability_criteria.items():
+            # Verificar se a aplicação está desabilitada no experiment_config
+            if not applications.get(app_name, True):  # Default True para compatibilidade
+                disabled_criteria[app_name] = min_required
+        
+        return disabled_criteria
     
     def check_system_availability(self) -> bool:
         """
@@ -1707,11 +1996,12 @@ class AvailabilitySimulator:
                     recovery_time = getattr(self, '_last_shutdown_recovery_time', 0.0)
                     print(f"  ⏱️ VALIDAÇÃO - Tempo de recuperação (MTTR) Control Plane: {recovery_time:.1f}s ({recovery_time/3600:.4f}h)")
                 else:
-                    # Para outras falhas, fazer verificação combinada (running + curl)
-                    print(f"  🔍 Verificando recuperação com método combinado (running + curl)...")
-                    _, recovery_time = self.health_checker.wait_for_pods_recovery_combined_silent()
+                    # Para outras falhas, usar recuperação em duas fases
+                    print(f"  🔍 Verificando recuperação em duas fases...")
+                    
+                    recovery_time = self.wait_for_recovery_with_two_phase_measurement()
                     next_event.component.total_downtime += recovery_time
-                    print(f"  ⏱️ Tempo de recuperação (combinado): {recovery_time:.1f}s ({recovery_time/3600:.4f}h)")
+                    print(f"  ⏱️ Tempo de recuperação (duas fases): {recovery_time:.1f}s ({recovery_time/3600:.4f}h)")
                 
                 # Aguardar 1 minuto real (delay fixo) - DEPOIS da recuperação
                 print(f"⏸️ Aguardando {self.real_delay_between_failures}s (delay entre falhas)...")
@@ -2495,7 +2785,9 @@ class AvailabilitySimulator:
                 if hasattr(self, 'availability_criteria'):
                     discovered_apps = list(self.availability_criteria.keys())
                 
-                apps_recovered, health_check_time = self.health_checker.wait_for_pods_recovery_combined_silent()
+                apps_recovered, health_check_time = self.health_checker.wait_for_pods_recovery_combined_silent(
+                    enabled_apps=list(self._get_enabled_availability_criteria().keys())
+                )
                 
                 if apps_recovered:
                     print(f"  ✅ Aplicações ficaram ativas em {health_check_time:.1f}s (tempo real de espera)")
@@ -2572,6 +2864,9 @@ class AvailabilitySimulator:
         
         # Armazenar referência para uso em outros métodos
         self._config_simples = config_simples
+        
+        # Armazenar configuração completa para filtro de aplicações
+        self._config = config_simples.get_full_config() if hasattr(config_simples, 'get_full_config') else config_simples.config_data
         
         # Obter componentes diretamente da configuração
         components_from_config = config_simples.get_component_config()
@@ -2731,7 +3026,9 @@ class AvailabilitySimulator:
                 if hasattr(self, 'availability_criteria'):
                     discovered_apps = list(self.availability_criteria.keys())
                 
-                apps_recovered, health_check_time = self.health_checker.wait_for_pods_recovery_combined_silent()
+                apps_recovered, health_check_time = self.health_checker.wait_for_pods_recovery_combined_silent(
+                    enabled_apps=list(self._get_enabled_availability_criteria().keys())
+                )
                 
                 if apps_recovered:
                     print(f"  ✅ Aplicações ficaram ativas em {health_check_time:.1f}s (tempo real de espera)")

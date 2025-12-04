@@ -194,7 +194,7 @@ class ControlPlaneInjector:
             target = self._get_control_plane_target()
             if not target:
                 # Se não achou control plane, tentar worker node
-                from kuber_bomber.monitoring.system_monitor import SystemMonitor
+                from chaos_k8s.monitoring.system_monitor import SystemMonitor
                 monitor = SystemMonitor()
                 worker_nodes = monitor.get_worker_nodes()
                 if worker_nodes:

@@ -235,6 +235,65 @@ class InfrastructureDiscovery:
             print(f"❌ Erro ao parsear JSON dos nodes: {e}")
             return []
     
+    def discover_deployments(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Descobre deployments ativos no cluster.
+        
+        Returns:
+            Dict com {deployment_name: {metadata, spec, status}}
+        """
+        print("🔍 Descobrindo deployments...")
+        
+        deployments = {}
+        cmd = "kubectl get deployments -o json"
+        output = self._run_kubectl_command(cmd)
+        
+        if not output:
+            return deployments
+        
+        try:
+            deployments_data = json.loads(output)
+            
+            for deployment in deployments_data.get('items', []):
+                name = deployment['metadata']['name']
+                
+                # Filtrar deployments de sistema
+                if not self._is_system_deployment(name):
+                    deployments[name] = {
+                        'metadata': deployment['metadata'],
+                        'spec': deployment['spec'], 
+                        'status': deployment.get('status', {})
+                    }
+                    print(f"  🚀 Deployment descoberto: {name}")
+                    
+            print(f"✅ Encontrados {len(deployments)} deployments de aplicação")
+            
+        except json.JSONDecodeError as e:
+            print(f"❌ Erro ao parsear JSON dos deployments: {e}")
+            
+        return deployments
+        
+    def _is_system_deployment(self, deployment_name: str) -> bool:
+        """
+        Verifica se um deployment é de sistema baseado em padrões de nome.
+        
+        Args:
+            deployment_name: Nome do deployment
+            
+        Returns:
+            True se for deployment de sistema, False caso contrário
+        """
+        system_prefixes = [
+            'nginx-ingress', 'coredns', 'calico', 'flannel', 'weave',
+            'kube-proxy', 'metrics-server', 'dashboard', 'etcd', 'prometheus'
+        ]
+        
+        for prefix in system_prefixes:
+            if deployment_name.startswith(prefix):
+                return True
+        
+        return False
+
     def _extract_app_name(self, pod_name: str) -> Optional[str]:
         """
         Extrai o nome da aplicação do nome do pod.
@@ -297,7 +356,7 @@ class InfrastructureDiscovery:
     
     def generate_config_structure(self, iterations: int = 5) -> Dict[str, Any]:
         """
-        Gera a estrutura completa de configuração JSON.
+        Gera a estrutura completa de configuração JSON baseada em deployments.
         
         Args:
             iterations: Número de iterações para o experimento
@@ -308,7 +367,7 @@ class InfrastructureDiscovery:
         print("🏗️ Gerando estrutura de configuração (aninhada)...")
 
         # Descobrir toda a infraestrutura
-        pods_by_app = self.discover_pods()
+        deployments = self.discover_deployments()
         worker_nodes = self.discover_worker_nodes()
         control_plane_nodes = self.discover_control_plane()
 
@@ -320,12 +379,12 @@ class InfrastructureDiscovery:
                 "control_plane": {}
             },
             "mttf_config": {
-                "pods": {},
+                "deployments": {},
                 "worker_node": {},
                 "control_plane": {}
             },
             "mttr_config": {
-                "pods": {},
+                "deployments": {},
                 "worker_node": {},
                 "control_plane": {}
             },
@@ -336,13 +395,12 @@ class InfrastructureDiscovery:
         config["delay"] = 10
         config["duration"] = 1000  # horas fictícias padrão
         
-        # Preencher experiment_config.applications e availability_criteria
-        for app_name, pods in pods_by_app.items():
-            for pod_name in pods:
-                # print(f"   • Adicionando aplicação: {pod_name}")
-                config["experiment_config"]["applications"][pod_name] = True
-                # critério padrão: pelo menos 1 pod
-                config["availability_criteria"][pod_name] = 1
+        # Preencher experiment_config.applications e availability_criteria baseado em deployments
+        for deployment_name, deployment_info in deployments.items():
+            # print(f"   • Adicionando aplicação: {deployment_name}")
+            config["experiment_config"]["applications"][deployment_name] = True
+            # critério padrão: pelo menos 1 pod por deployment
+            config["availability_criteria"][deployment_name] = 1
 
         # Preencher experiment_config.worker_node (singular como no exemplo)
         for node_name in worker_nodes:
@@ -352,14 +410,13 @@ class InfrastructureDiscovery:
         for cp_name in control_plane_nodes:
             config["experiment_config"]["control_plane"][cp_name] = True
 
-        # Preencher mttf_config.pods (pods + containers juntos)
-        for app_name, pods in pods_by_app.items():
-            for pod_name in pods:
-                config["mttf_config"]["pods"][pod_name] = self.default_mttf["pod"]
-                config["mttf_config"]["pods"][f"container-{pod_name}"] = self.default_mttf["container"]
-                
-                config["mttr_config"]["pods"][pod_name] = self.default_mttr.get("pod", 0.0524)
-                config["mttr_config"]["pods"][f"container-{pod_name}"] = self.default_mttr.get("container", 0.0524)
+        # Preencher mttf_config.deployments (deployment + containers)
+        for deployment_name, deployment_info in deployments.items():
+            config["mttf_config"]["deployments"][deployment_name] = self.default_mttf["pod"]
+            config["mttf_config"]["deployments"][f"{deployment_name}-container"] = self.default_mttf["container"]
+            
+            config["mttr_config"]["deployments"][deployment_name] = self.default_mttr.get("pod", 0.0524)
+            config["mttr_config"]["deployments"][f"{deployment_name}-container"] = self.default_mttr.get("container", 0.0524)
                 
 
         # Preencher mttf_config.worker_node (nodes + componentes juntos)
@@ -388,9 +445,8 @@ class InfrastructureDiscovery:
             config["mttr_config"]["control_plane"][f"cp_scheduler-{cp_name}"] = self.default_mttr.get("cp_scheduler", 0.0027)
             config["mttr_config"]["control_plane"][f"cp_etcd-{cp_name}"] = self.default_mttr.get("cp_etcd", 0.0553)
 
-        print("✅ Estrutura de configuração gerada (aninhada)!")
-        print(f"   • {len(pods_by_app)} aplicações")
-        print(f"   • {sum(len(pods) for pods in pods_by_app.values())} pods total")
+        print("✅ Estrutura de configuração gerada (baseada em deployments)!")
+        print(f"   • {len(deployments)} aplicações (deployments)")
         print(f"   • {len(worker_nodes)} worker nodes")
         print(f"   • {len(control_plane_nodes)} control plane nodes")
 
@@ -445,7 +501,7 @@ class InfrastructureDiscovery:
         
         # Salvar arquivo
         if output_file is None:
-            output_file = os.getcwd() + "/kuber_bomber/configs/config_simples_used.json"
+            output_file = os.getcwd() + "/chaos_k8s/configs/config_simples_used.json"
         
         filepath = self.save_config(config, output_file)
         

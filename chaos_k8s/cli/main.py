@@ -25,8 +25,8 @@ import os
 # Adicionar o diretório pai ao path para imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from kuber_bomber.core.reliability_tester import ReliabilityTester
-from kuber_bomber.utils.config import (
+from chaos_k8s.core.reliability_tester import ReliabilityTester
+from chaos_k8s.utils.config import (
     get_config, set_global_recovery_timeout, list_timeout_options, 
     get_current_recovery_timeout, DEFAULT_CONFIG
 )
@@ -190,7 +190,7 @@ def main():
         print("☁️ === MODO AWS HABILITADO ===")
         
         # SEMPRE usar aws_config.json - SEM hardcoded values!
-        from kuber_bomber.utils.aws_config_loader import require_aws_config
+        from chaos_k8s.utils.aws_config_loader import require_aws_config
         aws_config = require_aws_config()
         kE = KubectlExecutor(aws_config=aws_config)
         

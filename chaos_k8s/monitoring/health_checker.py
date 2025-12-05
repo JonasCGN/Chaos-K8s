@@ -1285,10 +1285,13 @@ class HealthChecker:
         
         start_time = time.time()
         check_count = 0
+        
         kubectl_working = False
         
         while time.time() - start_time < timeout:
             elapsed = time.time() - start_time
+            recovery_time = time.time() - start_time
+            
             check_count += 1
             
             print(f"\\n🔍 Verificação #{check_count} ({elapsed:.1f}s/{timeout}s)")
@@ -1320,7 +1323,6 @@ class HealthChecker:
             print("─" * 50)
             
             if criteria_met:
-                recovery_time = time.time() - start_time
                 print(f"\\n✅ Critérios de disponibilidade atendidos em {recovery_time:.2f}s")
                 return True, recovery_time
             

@@ -1124,7 +1124,9 @@ class AvailabilitySimulator:
             component.current_status = 'failed'
             component.failure_count += 1
             print(f"  ✅ Pod {component.name} falhou com sucesso")
-        
+        else:
+            print(f"  ❌ Falha ao injetar falha no pod {component.name}")
+            
         return bool(success)  # Garantir que retorna bool
     
     def _select_healthy_pod(self, pods: list, app_name: str) -> str:

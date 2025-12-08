@@ -150,8 +150,8 @@ class AvailabilitySimulator:
         # Executor de kubectl centralizado
         self.kubectl = get_kubectl_executor(aws_config)
         
-        # NÃO descobrir URLs automaticamente aqui - será feito após ConfigSimples
-        discovered_urls = {}
+        # Aplicações descobertas (será preenchido depois)
+        self.discovered_apps = []
         
         # Critérios de disponibilidade por aplicação (será configurado dinamicamente)
         self.availability_criteria = {}
@@ -954,9 +954,9 @@ class AvailabilitySimulator:
                         'failures_mean': stats['failures_mean'],
                         'failures_std': stats['failures_std'],
                         'mttr_mean': stats['mttr_mean'],
-                        'mttr_std': stats['mttr_std'],
+                        'mttr_std': stats['mttr.std'],
                         'downtime_mean': stats['downtime_mean'],
-                        'downtime_std': stats['downtime_std'],
+                        'downtime.std': stats['downtime.std'],
                         'observed_failure_rate': stats['observed_failure_rate'],
                         'total_failures': stats['total_failures']
                     })
@@ -2177,7 +2177,7 @@ class AvailabilitySimulator:
         print("🔧 === ESTATÍSTICAS DETALHADAS POR COMPONENTE ===")
         for component_name, stats in component_stats.items():
             print(f"  📦 {component_name}:")
-            print(f"    • MTTF configurado: {stats['mttf_configured']}h")
+            print(f"    • MTTF configurado: {stats['mttf_configurado']}h")
             print(f"    • Falhas por iteração: {stats['failures_mean']:.2f} (±{stats['failures_std']:.2f})")
             print(f"    • MTTR médio: {stats['mttr_mean']:.2f}s (±{stats['mttr_std']:.2f}s)")
             print(f"    • Downtime total médio: {stats['downtime_mean']:.4f}h (±{stats['downtime_std']:.4f}h)")
@@ -2274,7 +2274,7 @@ class AvailabilitySimulator:
                 'failures_per_iteration': [],
                 'mttr_times': [],
                 'downtime_per_iteration': [],
-                'mttf_configured': 0.0
+                'mttf_configurado': 0.0
             }
         
         component_data = defaultdict(create_component_data)
@@ -2301,7 +2301,7 @@ class AvailabilitySimulator:
         # Buscar MTTF configurado de cada componente
         for component in self.components:
             if component.name in component_data:
-                component_data[component.name]['mttf_configured'] = component.mttf_hours
+                component_data[component.name]['mttf_configurado'] = component.mttf_hours
         
         # Calcular estatísticas
         component_stats = {}
@@ -2326,7 +2326,7 @@ class AvailabilitySimulator:
             observed_failure_rate = total_failures / total_sim_time if total_sim_time > 0 else 0
             
             component_stats[comp_name] = {
-                'mttf_configured': data['mttf_configured'],
+                'mttf_configurado': data['mttf_configurado'],
                 'failures_mean': failures_mean,
                 'failures_std': failures_std,
                 'failures_list': failures_list,
@@ -2640,7 +2640,7 @@ class AvailabilitySimulator:
         try:
             with open(components_filename, 'w', newline='', encoding='utf-8') as csvfile:
                 fieldnames = [
-                    'component_name', 'component_type', 'mttf_configured', 
+                    'component_name', 'component_type', 'mttf_configurado', 
                     'failures_mean', 'failures_std', 'mttr_mean_seconds', 'mttr_std_seconds',
                     'downtime_mean_hours', 'downtime_std_hours', 'observed_failure_rate',
                     'total_failures', 'theoretical_failure_rate'
@@ -2650,18 +2650,18 @@ class AvailabilitySimulator:
                 
                 for comp_name, stats in component_stats.items():
                     # Taxa teórica de falha (1/MTTF)
-                    theoretical_rate = 1/stats['mttf_configured'] if stats['mttf_configured'] > 0 else 0
+                    theoretical_rate = 1/stats['mttf_configurado'] if stats['mttf_configurado'] > 0 else 0
                     
                     writer.writerow({
                         'component_name': comp_name,
                         'component_type': self._get_component_type(comp_name),
-                        'mttf_configured': stats['mttf_configured'],
+                        'mttf_configurado': stats['mttf_configurado'],
                         'failures_mean': stats['failures_mean'],
-                        'failures_std': stats['failures_std'],
+                        'failures_std': stats['failures.std'],
                         'mttr_mean_seconds': stats['mttr_mean'],
-                        'mttr_std_seconds': stats['mttr_std'],
+                        'mttr_std_seconds': stats['mttr.std'],
                         'downtime_mean_hours': stats['downtime_mean'],
-                        'downtime_std_hours': stats['downtime_std'],
+                        'downtime_std_hours': stats['downtime.std'],
                         'observed_failure_rate': stats['observed_failure_rate'],
                         'total_failures': stats['total_failures'],
                         'theoretical_failure_rate': theoretical_rate
@@ -2735,7 +2735,7 @@ class AvailabilitySimulator:
         for comp_name, stats in component_stats.items():
             if stats['total_failures'] > 0:
                 observed_mttf = total_sim_time / stats['total_failures']
-                configured_mttf = stats['mttf_configured']
+                configured_mttf = stats['mttf_configurado']
                 diff_pct = abs(observed_mttf - configured_mttf) / configured_mttf * 100 if configured_mttf > 0 else 0
                 
                 print(f"    • {comp_name}:")

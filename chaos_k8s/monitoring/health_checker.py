@@ -236,7 +236,7 @@ class HealthChecker:
     
     def check_all_applications(self, verbose: bool = True, use_ingress: bool = False, discovered_apps: Optional[List[str]] = None) -> Dict:
         """
-        Verifica saúde de todas as aplicações configuradas ou descobertas.
+        Verifica saúde de todas as aplicações configuradas ou descobertas em paralelo.
         
         Args:
             verbose: Se deve imprimir mensagens detalhadas
@@ -247,21 +247,42 @@ class HealthChecker:
             Dicionário com status de todas as aplicações
         """
         results = {}
+        threads = []
         
-        # Se estamos em modo AWS, usar lista conhecida de aplicações
-        if self.is_aws_mode:
-            # Descobrir aplicações dinamicamente via kubectl
-            aws_apps = self._discover_app_names()
+        # Função para ser executada em cada thread
+        def check_service(app_name):
             if verbose:
-                print(f"📱 Testando aplicações AWS via control plane: {aws_apps}")
+                print(f"🔍 Verificando {app_name} em paralelo...")
+            status = self.check_application_health(app_name, verbose=verbose, use_ingress=use_ingress)
+            results[app_name] = status
+
+        # Se estamos em modo AWS ou apps foram passados, usar essa lista
+        if self.is_aws_mode:
+            app_list = self._discover_app_names()
+            if verbose:
+                print(f"📱 Testando aplicações AWS via control plane: {app_list}")
+        elif discovered_apps:
+            app_list = discovered_apps
+        else:
+            # Fallback para descobrir na hora se nenhuma lista for fornecida
+            app_list = self._discover_app_names()
+
+        if not app_list:
+            if verbose:
+                print("⚠️ Nenhuma aplicação para verificar.")
+            return {}
+
+        for app in app_list:
+            thread = threading.Thread(target=check_service, args=(app,))
+            threads.append(thread)
+            thread.start()
+
+        # Aguardar todos os threads terminarem
+        for thread in threads:
+            thread.join()
             
-            for app in aws_apps:
-                if verbose:
-                    print(f"🔍 Verificando {app}...")
-                results[app] = self.check_application_health(app, verbose=verbose)
-            
-            return results
-    
+        return results
+
     def _discover_app_names(self) -> List[str]:
         """
         Descobre dinamicamente nomes de aplicações baseado nos pods em execução.
@@ -855,7 +876,7 @@ class HealthChecker:
                         'healthy': True,
                         'status_code': status_code,
                         'response_time': response_time,
-                        'url': local_url,
+                        'url': test_url,
                         'url_type': "Control Plane NodePort"
                     }
                 else:
@@ -1202,6 +1223,9 @@ class HealthChecker:
         """
         Verifica se os critérios de disponibilidade estão sendo atendidos.
         
+        OTIMIZAÇÃO: Verifica apenas se pods estão Running e Ready, sem fazer health check HTTP (curl).
+        Isso reduz significativamente o tempo de verificação.
+        
         Args:
             availability_criteria: Dict com {app_name: min_required_pods}
             enabled_apps: Lista de aplicações habilitadas para filtrar
@@ -1222,9 +1246,8 @@ class HealthChecker:
                     filtered_criteria[app_name] = min_required
             availability_criteria = filtered_criteria
         
-        # Verificar status dos pods (silenciosamente)
+        # Verificar APENAS status dos pods (Running e Ready) - SEM CURL
         all_running, running_details = self.check_pods_running_status(verbose=False)
-        all_responding, curl_details = self.check_pods_via_curl(verbose=False)
         
         # Se kubectl não está funcionando, critérios não são atendidos
         if not running_details:
@@ -1243,11 +1266,9 @@ class HealthChecker:
                 if pod_name.startswith(app_name + '-'):
                     total_pods += 1
                     running_info = running_details.get(pod_name, {})
-                    curl_info = curl_details.get(pod_name, {})
                     
-                    # Pod é saudável se está Running/Ready E respondendo via curl
-                    if (running_info.get('running_and_ready', False) and 
-                        curl_info.get('responding', False)):
+                    # Pod é saudável se está Running E Ready (SEM verificação de curl)
+                    if running_info.get('running_and_ready', False):
                         healthy_pods += 1
             
             # Verificar se o critério foi atendido
@@ -1290,7 +1311,7 @@ class HealthChecker:
         
         while time.time() - start_time < timeout:
             elapsed = time.time() - start_time
-            recovery_time = time.time() - start_time
+            recovery_time = time.time() - start_time # Nao considera
             
             check_count += 1
             
@@ -1323,6 +1344,7 @@ class HealthChecker:
             print("─" * 50)
             
             if criteria_met:
+                # recovery_time = time.time() - start_time
                 print(f"\\n✅ Critérios de disponibilidade atendidos em {recovery_time:.2f}s")
                 return True, recovery_time
             
@@ -1607,9 +1629,6 @@ class HealthChecker:
         start_time = time.time()
         timeout = self.config.current_recovery_timeout
         check_interval = 2.0
-
-        print(f"⏳ Aguardando recuperação via CURL do sistema...")
-        print(f"📊 Timeout: {timeout}s | Verificação a cada {check_interval}s")
 
         # def update_pods_info():
         #     while not stop_thread.is_set():

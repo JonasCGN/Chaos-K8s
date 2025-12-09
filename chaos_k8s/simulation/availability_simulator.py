@@ -938,27 +938,32 @@ class AvailabilitySimulator:
             with open(components_filename, 'w', newline='', encoding='utf-8') as csvfile:
                 fieldnames = [
                     'component_name', 'component_type', 'mttf_configured',
-                    'failures_mean', 'failures_std', 'mttr_mean', 'mttr_std',
-                    'downtime_mean', 'downtime_std', 'observed_failure_rate',
-                    'total_failures'
+                    'failures_mean', 'failures_std', 'mttr_mean_seconds', 'mttr_std_seconds',
+                    'downtime_mean_hours', 'downtime_std_hours', 'observed_failure_rate',
+                    'total_failures', 'theoretical_failure_rate'
                 ]
                 
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
                 writer.writeheader()
                 
                 for comp_name, stats in component_stats.items():
+                    # Calcular taxa de falha teórica (1 / MTTF)
+                    mttf = stats.get('mttf_configurado', 0)
+                    theoretical_rate = (1.0 / mttf) if mttf > 0 else 0.0
+                    
                     writer.writerow({
                         'component_name': comp_name,
                         'component_type': next((c.component_type for c in self.components if c.name == comp_name), 'unknown'),
-                        'mttf_configured': stats['mttf_configured'],
-                        'failures_mean': stats['failures_mean'],
-                        'failures_std': stats['failures_std'],
-                        'mttr_mean': stats['mttr_mean'],
-                        'mttr_std': stats['mttr.std'],
-                        'downtime_mean': stats['downtime_mean'],
-                        'downtime.std': stats['downtime.std'],
+                        'mttf_configured': mttf,
+                        'failures_mean': int(stats['failures_mean']),
+                        'failures_std': int(stats['failures_std']),
+                        'mttr_mean_seconds': stats['mttr_mean'],
+                        'mttr_std_seconds': stats['mttr_std'],
+                        'downtime_mean_hours': stats['downtime_mean'],
+                        'downtime_std_hours': stats['downtime_std'],
                         'observed_failure_rate': stats['observed_failure_rate'],
-                        'total_failures': stats['total_failures']
+                        'total_failures': stats['total_failures'],
+                        'theoretical_failure_rate': theoretical_rate
                     })
                     
         except Exception as e:
@@ -2656,12 +2661,12 @@ class AvailabilitySimulator:
                         'component_name': comp_name,
                         'component_type': self._get_component_type(comp_name),
                         'mttf_configurado': stats['mttf_configurado'],
-                        'failures_mean': stats['failures_mean'],
-                        'failures_std': stats['failures.std'],
+                        'failures_mean': int(stats['failures_mean']),
+                        'failures_std': int(stats['failures_std']),
                         'mttr_mean_seconds': stats['mttr_mean'],
-                        'mttr_std_seconds': stats['mttr.std'],
+                        'mttr_std_seconds': stats['mttr_std'],
                         'downtime_mean_hours': stats['downtime_mean'],
-                        'downtime_std_hours': stats['downtime.std'],
+                        'downtime_std_hours': stats['downtime_std'],
                         'observed_failure_rate': stats['observed_failure_rate'],
                         'total_failures': stats['total_failures'],
                         'theoretical_failure_rate': theoretical_rate
@@ -2812,56 +2817,69 @@ class AvailabilitySimulator:
             
             print(f"  ✅ Worker node {node_name} religado com sucesso")
             
-            # 5. CORREÇÃO: Aguardar aplicações ficarem ativas com health checker
-            print(f"  ⚕️ Aguardando aplicações ficarem ativas com health checker...")
-            health_check_start = time.time()
+            # 5. NOVA LÓGICA: Verificar availability_criteria
+            print(f"  ⚕️ Verificando critérios de disponibilidade...")
             
-            # Usar health checker para verificação real (mas não contabilizar o tempo)
+            # Obter critérios habilitados
+            enabled_criteria = self._get_enabled_availability_criteria()
+            
             if hasattr(self, 'health_checker') and self.health_checker:
-                # Descobrir aplicações se não estão em cache
-                discovered_apps = None
-                if hasattr(self, 'availability_criteria'):
-                    discovered_apps = list(self.availability_criteria.keys())
-                
-                apps_recovered, health_check_time = self.health_checker.wait_for_pods_recovery_combined_silent(
-                    enabled_apps=list(self._get_enabled_availability_criteria().keys())
+                # PRIMEIRA VERIFICAÇÃO: Verificar se critério já está atendido
+                print(f"  🔍 1ª Verificação: Testando se critério já foi atingido...")
+                criteria_met, _ = self.health_checker.check_availability_criteria_met(
+                    availability_criteria=enabled_criteria,
+                    enabled_apps=list(enabled_criteria.keys())
                 )
                 
-                if apps_recovered:
-                    print(f"  ✅ Aplicações ficaram ativas em {health_check_time:.1f}s (tempo real de espera)")
-                    # CORREÇÃO: NÃO somar tempo real, usar apenas MTTR configurado
-                    mttr_seconds = mttr_hours * 3600
-                    print(f"  📊 Usando apenas MTTR configurado: {mttr_seconds:.1f}s (não contabilizando tempo real de {health_check_time:.1f}s)")
+                if criteria_met:
+                    # ✅ CRITÉRIO ATINGIDO NA PRIMEIRA VERIFICAÇÃO = DOWNTIME ZERO
+                    print(f"  ✅ Critério de disponibilidade atingido na 1ª verificação!")
+                    print(f"  📊 Sistema permaneceu disponível - Recovery time = 0s")
                     
-                    # Armazenar o MTTR configurado no componente para uso posterior
-                    component = next((c for c in self.components if c.name == f"worker_node-{node_name}"), None)
-                    if component:
-                        component.total_downtime += mttr_seconds
-                    
-                    return True, mttr_seconds
+                    # NÃO adiciona downtime ao componente
+                    return True, 0.0
                 else:
-                    print(f"  ⚠️ Aplicações não ficaram ativas no timeout (180s)")
-                    # Mesmo assim, considera recuperado com MTTR configurado
-                    print(f"  📊 Usando MTTR configurado mesmo com timeout: {mttr_hours*3600:.1f}s")
+                    # ❌ CRITÉRIO NÃO ATINGIDO: Aguardar recuperação
+                    print(f"  ⚠️ Critério NÃO atingido na 1ª verificação - aguardando recuperação...")
                     
-                    # Armazenar o MTTR configurado mesmo com timeout
-                    component = next((c for c in self.components if c.name == f"worker_node-{node_name}"), None)
-                    if component:
-                        component.total_downtime += mttr_hours * 3600
+                    # Aguardar até critérios serem atendidos
+                    criteria_met, actual_recovery_time = self.health_checker.wait_for_availability_criteria(
+                        availability_criteria=enabled_criteria,
+                        enabled_apps=list(enabled_criteria.keys())
+                    )
                     
-                    return True, mttr_hours * 3600  # Considera recuperado mesmo se timeout
+                    if criteria_met:
+                        print(f"  ✅ Critério atingido após {actual_recovery_time:.1f}s")
+                        # Usar MTTR configurado para contabilização
+                        mttr_seconds = mttr_hours * 3600
+                        print(f"  📊 Usando MTTR configurado: {mttr_seconds:.1f}s (tempo real: {actual_recovery_time:.1f}s)")
+                        
+                        # Armazenar MTTR configurado no componente
+                        component = next((c for c in self.components if c.name == f"worker_node-{node_name}"), None)
+                        if component:
+                            component.total_downtime += mttr_seconds
+                        
+                        return True, mttr_seconds
+                    else:
+                        # Timeout mas considera recuperado com MTTR
+                        print(f"  ⚠️ Timeout mas usando MTTR configurado: {mttr_hours*3600:.1f}s")
+                        mttr_seconds = mttr_hours * 3600
+                        
+                        component = next((c for c in self.components if c.name == f"worker_node-{node_name}"), None)
+                        if component:
+                            component.total_downtime += mttr_seconds
+                        
+                        return True, mttr_seconds
             else:
-                # Fallback: aguardar tempo fixo se health_checker não disponível
-                print(f"  ⚠️ Health checker não disponível, usando fallback de 60s...")
-                time.sleep(60)
-                print(f"  📊 Shutdown completo com fallback: usando MTTR configurado {mttr_hours*3600:.1f}s")
+                # Fallback sem health_checker
+                print(f"  ⚠️ Health checker não disponível, usando MTTR configurado")
+                mttr_seconds = mttr_hours * 3600
                 
-                # Armazenar o MTTR configurado para fallback
                 component = next((c for c in self.components if c.name == f"worker_node-{node_name}"), None)
                 if component:
-                    component.total_downtime += mttr_hours * 3600
+                    component.total_downtime += mttr_seconds
                 
-                return True, mttr_hours * 3600
+                return True, mttr_seconds
                 
         except Exception as e:
             print(f"  ❌ Erro durante shutdown/startup de {node_name}: {e}")
@@ -3053,7 +3071,7 @@ class AvailabilitySimulator:
             
             print(f"  ✅ Control plane {node_name} religado com sucesso")
             
-            # 5. CORREÇÃO: Aguardar aplicações ficarem ativas com health checker
+            # 5. Aguardar aplicações ficarem ativas com health checker
             print(f"  ⚕️ Aguardando aplicações ficarem ativas com health checker...")
             health_check_start = time.time()
             
@@ -3070,7 +3088,7 @@ class AvailabilitySimulator:
                 
                 if apps_recovered:
                     print(f"  ✅ Aplicações ficaram ativas em {health_check_time:.1f}s (tempo real de espera)")
-                    # CORREÇÃO: NÃO somar tempo real, usar apenas MTTR configurado
+                    # NÃO somar tempo real, usar apenas MTTR configurado
                     mttr_seconds = mttr_hours * 3600
                     print(f"  📊 Usando apenas MTTR configurado: {mttr_seconds:.1f}s (não contabilizando tempo real de {health_check_time:.1f}s)")
                     

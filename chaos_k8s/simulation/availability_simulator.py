@@ -1622,36 +1622,127 @@ class AvailabilitySimulator:
         
         return system_available, availability_details
 
-    def wait_for_recovery_with_two_phase_measurement(self) -> float:
+    def wait_for_recovery_with_failure_confirmation(self) -> float:
         """
-        Aguarda recuperação com medição em duas fases:
-        1. Mede tempo quando critérios mínimos são atendidos
-        2. Continua aguardando até sistema estar completamente estabilizado
+        Aguarda recuperação com confirmação de falha INTELIGENTE:
+        1. VERIFICAÇÃO DE PROPAGAÇÃO: Confirma que a falha propagou
+        2. MEDIÇÃO DE RECUPERAÇÃO: Continua medindo até critérios serem atendidos
+        
+        IMPORTANTE: O tempo de verificação de propagação JÁ CONTA como downtime!
         
         Returns:
-            Tempo de recuperação em segundos (medido na fase 1)
+            Tempo de recuperação em segundos (0 se não houve falha real)
         """
         import time
         
         enabled_criteria = self._get_enabled_availability_criteria()
-        print(f"🔍 Aguardando recuperação em duas fases para: {enabled_criteria}")
+        print(f"🔍 Verificando propagação de falha e recuperação para: {enabled_criteria}")
         
-        # FASE 1: Aguardar critérios mínimos serem atendidos e MEDIR o tempo
-        print("📊 FASE 1: Aguardando critérios mínimos...")
-        criteria_met, criteria_recovery_time = self.health_checker.wait_for_availability_criteria(
+        # FASE 0: Verificar se a falha realmente propagou (até 10 segundos)
+        # Retorna: (falha_detectada, tempo_gasto_verificando)
+        print("📊 FASE 0: Verificando propagação da falha (até 10s)...")
+        failure_detected, time_spent_checking = self._wait_for_failure_propagation(
+            enabled_criteria=enabled_criteria,
+            max_wait_seconds=15,
+            check_interval=1.0
+        )
+        
+        if not failure_detected:
+            print("✅ FASE 0: Nenhuma falha detectada - sistema permaneceu disponível")
+            print("⏱️ TEMPO DE RECUPERAÇÃO: 0s (sem falha)")
+            return 0.0
+        
+        print(f"💥 FASE 0: Falha confirmada após {time_spent_checking:.1f}s de verificação")
+        print(f"⏱️ Tempo de verificação JÁ CONTA como downtime: {time_spent_checking:.1f}s")
+        
+        # FASE 1: Aguardar critérios mínimos serem atendidos e MEDIR o tempo ADICIONAL
+        print("📊 FASE 1: Aguardando recuperação dos critérios mínimos...")
+        criteria_met, additional_recovery_time = self.health_checker.wait_for_availability_criteria(
             availability_criteria=enabled_criteria,
             enabled_apps=list(enabled_criteria.keys())
         )
         
         if not criteria_met:
             print("❌ FASE 1 falhou - critérios não foram atendidos")
-            return criteria_recovery_time
+            # Somar tempo de verificação + tempo de tentativa de recuperação
+            total_time = time_spent_checking + additional_recovery_time
+            print(f"⏱️ TEMPO TOTAL: {total_time:.1f}s (verificação: {time_spent_checking:.1f}s + recuperação: {additional_recovery_time:.1f}s)")
+            return total_time
         
-        print(f"✅ FASE 1 concluída em {criteria_recovery_time:.1f}s - critérios mínimos atendidos")
+        print(f"✅ FASE 1 concluída em {additional_recovery_time:.1f}s - critérios mínimos atendidos")
         
-        # IMPORTANTE: Retornar o tempo da FASE 1 (quando critérios foram atingidos)
-        print(f"⏱️ TEMPO DE RECUPERAÇÃO FINAL: {criteria_recovery_time:.1f}s (FASE 1 - critérios)")
-        return criteria_recovery_time
+        # IMPORTANTE: Somar tempo de verificação + tempo de recuperação
+        total_recovery_time = time_spent_checking + additional_recovery_time
+        print(f"⏱️ TEMPO DE RECUPERAÇÃO FINAL: {total_recovery_time:.1f}s")
+        print(f"   └─ Verificação: {time_spent_checking:.1f}s + Recuperação: {additional_recovery_time:.1f}s")
+        
+        return total_recovery_time
+    
+    def _wait_for_failure_propagation(self, enabled_criteria: Dict[str, int], max_wait_seconds: int = 10, check_interval: float = 1.0) -> Tuple[bool, float]:
+        """
+        Aguarda e verifica se a falha realmente propagou, violando os critérios de disponibilidade.
+        Retorna IMEDIATAMENTE quando detectar a falha (não espera o timeout).
+        
+        Faz verificações repetidas usando check_availability_criteria_met() para detectar
+        quando os critérios são violados (falha propagou).
+        
+        Args:
+            enabled_criteria: Critérios de disponibilidade a verificar
+            max_wait_seconds: Tempo máximo de espera em segundos
+            check_interval: Intervalo entre verificações em segundos
+            
+        Returns:
+            Tuple com (falha_detectada, tempo_gasto_em_segundos)
+        """
+        print(f"  🔍 Aguardando propagação da falha (máx {max_wait_seconds}s)...")
+        
+        start_time = time.time()
+        attempt = 0
+        
+        if not enabled_criteria:
+            print(f"  ⚠️ Nenhuma aplicação habilitada para verificar")
+            elapsed = time.time() - start_time
+            return (True, elapsed)  # Assumir falha por padrão
+        
+        while (time.time() - start_time) < max_wait_seconds:
+            attempt += 1
+            elapsed = time.time() - start_time
+            
+            try:
+                # Verificar AGORA se os critérios estão atendidos (sem aguardar)
+                criteria_met = self.health_checker.check_availability_criteria_met(
+                    availability_criteria=enabled_criteria,
+                    enabled_apps=list(enabled_criteria.keys())
+                )
+                    
+                if not criteria_met:
+                    # Critérios NÃO atendidos = falha propagou!
+                    # RETORNAR IMEDIATAMENTE com o tempo gasto até agora
+                    elapsed_at_detection = time.time() - start_time
+                    print(f"  💥 Falha detectada após {elapsed_at_detection:.1f}s (tentativa {attempt})")
+                    print(f"  📉 Critérios de disponibilidade violados")
+                    return (True, elapsed_at_detection)
+                else:
+                    # Critérios atendidos = sistema ainda saudável
+                    print(f"  ⏳ Sistema ainda saudável... {elapsed:.1f}s/{max_wait_seconds}s (tentativa {attempt})")
+                    time.sleep(check_interval)
+                    
+            except Exception as e:
+                print(f"  ⚠️ Erro ao verificar propagação: {e}")
+                time.sleep(check_interval)
+        
+        # Timeout atingido - sistema permaneceu saudável
+        elapsed_final = time.time() - start_time
+        print(f"  ✅ Sistema permaneceu saudável após {elapsed_final:.1f}s - sem falha efetiva")
+        return (False, elapsed_final)
+    
+    def wait_for_recovery_with_two_phase_measurement(self) -> float:
+        """
+        DEPRECATED: Use wait_for_recovery_with_failure_confirmation() ao invés.
+        
+        Mantido para compatibilidade com código legado.
+        """
+        return self.wait_for_recovery_with_failure_confirmation()
     
     def _get_pod_to_deployment_mapping(self) -> Dict[str, str]:
         """
@@ -3073,20 +3164,19 @@ class AvailabilitySimulator:
             
             # 5. Aguardar aplicações ficarem ativas com health checker
             print(f"  ⚕️ Aguardando aplicações ficarem ativas com health checker...")
-            health_check_start = time.time()
             
             # Usar health checker para verificação real (mas não contabilizar o tempo)
             if hasattr(self, 'health_checker') and self.health_checker:
-                # Descobrir aplicações se não estão em cache
-                discovered_apps = None
-                if hasattr(self, 'availability_criteria'):
-                    discovered_apps = list(self.availability_criteria.keys())
+                # Obter critérios habilitados
+                enabled_criteria = self._get_enabled_availability_criteria()
                 
-                apps_recovered, health_check_time = self.health_checker.wait_for_pods_recovery_combined_silent(
-                    enabled_apps=list(self._get_enabled_availability_criteria().keys())
+                # Usar wait_for_availability_criteria para verificar recuperação
+                criteria_met, health_check_time = self.health_checker.wait_for_availability_criteria(
+                    availability_criteria=enabled_criteria,
+                    enabled_apps=list(enabled_criteria.keys())
                 )
                 
-                if apps_recovered:
+                if criteria_met:
                     print(f"  ✅ Aplicações ficaram ativas em {health_check_time:.1f}s (tempo real de espera)")
                     # NÃO somar tempo real, usar apenas MTTR configurado
                     mttr_seconds = mttr_hours * 3600

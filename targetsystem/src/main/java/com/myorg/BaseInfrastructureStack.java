@@ -51,7 +51,7 @@ public class BaseInfrastructureStack extends Stack {
                 String RABBITMQ_PASS = env.get("RABBITMQ_PASS");
                 String RABBITMQ_PORT = env.get("RABBITMQ_PORT");
                 
-                int numberOfWorkers = 1;
+                int numberOfWorkers = 4;
 
                 // int numberOfClients=0;
                 String useHPA = "false";

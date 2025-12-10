@@ -161,6 +161,7 @@ setup_aws_pods_complete:
 	make destroy_deploy_aplication
 	make run_deploy_aws
 	make run_deploy_aplication
+	sleep 120
 	@echo "🚀 Iniciando setup completo dos pods AWS..."
 	@echo "1️⃣ Instalando ferramentas..."
 	make install_debug_tools

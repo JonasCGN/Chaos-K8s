@@ -8,6 +8,7 @@ Não depende mais de ssh_host fixo no aws_config.json.
 
 import subprocess
 import json
+import time
 from typing import Dict, List, Optional, Tuple
 
 
@@ -282,7 +283,7 @@ class AWSFailureInjector:
         for cmd in commands:
             success, output = self._execute_ssh_command(node_name, cmd, timeout=15)
             results.append(f"{cmd}: {'✅' if success else '❌'}")
-                
+        
         if any("✅" in r for r in results):
             return True, f"restart_containerd {node_name}"
         else:

@@ -2858,7 +2858,7 @@ class AvailabilitySimulator:
                         component = next((c for c in self.components if c.name == f"worker_node-{node_name}"), None)
                         if component:
                             component.total_downtime += mttr_seconds
-                        
+                            
                         return True, mttr_seconds
                     else:
                         # Timeout mas considera recuperado com MTTR

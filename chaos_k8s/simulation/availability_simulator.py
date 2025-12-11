@@ -1716,7 +1716,7 @@ class AvailabilitySimulator:
                 )
 
                 for app, details in detail_criteria.items():
-                    ready_pods = details.get('ready_pods', 'N/A')
+                    ready_pods = details.get('healthy_pods', 'N/A')
                     required_pods = details.get('required_pods', 'N/A')
                     available = details.get('available', 'N/A')
                     print(f"    - App: {app}, Ready Pods: {ready_pods}/{required_pods}, Available: {available}")

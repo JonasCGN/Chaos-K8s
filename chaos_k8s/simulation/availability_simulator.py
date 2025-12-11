@@ -1682,45 +1682,45 @@ class AvailabilitySimulator:
         """
         Aguarda e verifica se a falha realmente propagou, violando os critérios de disponibilidade.
         Retorna IMEDIATAMENTE quando detectar a falha (não espera o timeout).
-        
+
         Faz verificações repetidas usando check_availability_criteria_met() para detectar
         quando os critérios são violados (falha propagou).
-        
+
         Args:
             enabled_criteria: Critérios de disponibilidade a verificar
             max_wait_seconds: Tempo máximo de espera em segundos
             check_interval: Intervalo entre verificações em segundos
-            
+
         Returns:
             Tuple com (falha_detectada, tempo_gasto_em_segundos)
         """
         print(f"  🔍 Aguardando propagação da falha (máx {max_wait_seconds}s)...")
-        
+
         start_time = time.time()
         attempt = 0
-        
+
         if not enabled_criteria:
             print(f"  ⚠️ Nenhuma aplicação habilitada para verificar")
             elapsed = time.time() - start_time
             return (True, elapsed)  # Assumir falha por padrão
-        
+
         while (time.time() - start_time) < max_wait_seconds:
             attempt += 1
             elapsed = time.time() - start_time
-            
+
             try:
                 # Verificar AGORA se os critérios estão atendidos (sem aguardar)
-                criteria_met,detail_criteria = self.health_checker.check_availability_criteria_met(
+                criteria_met, detail_criteria = self.health_checker.check_availability_criteria_met(
                     availability_criteria=enabled_criteria,
                     enabled_apps=list(enabled_criteria.keys())
                 )
-                
+
                 for app, details in detail_criteria.items():
                     ready_pods = details.get('ready_pods', 'N/A')
                     required_pods = details.get('required_pods', 'N/A')
                     available = details.get('available', 'N/A')
                     print(f"    - App: {app}, Ready Pods: {ready_pods}/{required_pods}, Available: {available}")
-                
+
                 if not criteria_met:
                     # Critérios NÃO atendidos = falha propagou!
                     # RETORNAR IMEDIATAMENTE com o tempo gasto até agora
@@ -1732,11 +1732,11 @@ class AvailabilitySimulator:
                     # Critérios atendidos = sistema ainda saudável
                     print(f"  ⏳ Sistema ainda saudável... {elapsed:.1f}s/{max_wait_seconds}s (tentativa {attempt})")
                     time.sleep(check_interval)
-                    
+
             except Exception as e:
                 print(f"  ⚠️ Erro ao verificar propagação: {e}")
                 time.sleep(check_interval)
-        
+
         # Timeout atingido - sistema permaneceu saudável
         elapsed_final = time.time() - start_time
         print(f"  ✅ Sistema permaneceu saudável após {elapsed_final:.1f}s - sem falha efetiva")

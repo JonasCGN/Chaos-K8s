@@ -1710,11 +1710,17 @@ class AvailabilitySimulator:
             
             try:
                 # Verificar AGORA se os critérios estão atendidos (sem aguardar)
-                criteria_met = self.health_checker.check_availability_criteria_met(
+                criteria_met,detail_criteria = self.health_checker.check_availability_criteria_met(
                     availability_criteria=enabled_criteria,
                     enabled_apps=list(enabled_criteria.keys())
                 )
-                    
+                
+                for app, details in detail_criteria.items():
+                    ready_pods = details.get('ready_pods', 'N/A')
+                    required_pods = details.get('required_pods', 'N/A')
+                    available = details.get('available', 'N/A')
+                    print(f"    - App: {app}, Ready Pods: {ready_pods}/{required_pods}, Available: {available}")
+                
                 if not criteria_met:
                     # Critérios NÃO atendidos = falha propagou!
                     # RETORNAR IMEDIATAMENTE com o tempo gasto até agora
